@@ -13,33 +13,38 @@ export type Region = {
  */
 export const REGIONES: Region[] = [
   {
-    id: "la-victoria",
+    id: "La Victoria",
     nombre: "La Victoria",
     codigo: "LV"
   },
   {
-    id: "pinos",
+    id: "Pinos",
     nombre: "Pinos",
     codigo: "PN"
   },
   {
-    id: "el-obraje",
+    id: "El Obraje",
     nombre: "El Obraje",
     codigo: "EO"
   },
   {
-    id: "el-chiquihuitillo",
+    id: "El Chiquihuitillo",
     nombre: "El Chiquihuitillo",
     codigo: "EC"
   },
   {
-    id: "san-jose",
+    id: "San José",
     nombre: "San José",
     codigo: "SJ"
   },
   {
-    id: "la-noria",
+    id: "La Noria",
     nombre: "La Noria",
     codigo: "LN"
+  },
+  {
+    id: "El Nigroman",
+    nombre: "El Nigroman",
+    codigo: "EN"
   }
 ] 
