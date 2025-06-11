@@ -15,8 +15,8 @@ const containerStyle = {
 }
 
 const defaultCenter = {
-  lat: 9.9281, // San José, Costa Rica
-  lng: -84.0907,
+  lat: 22.256215, 
+  lng: -101.629182,
 }
 
 export const GoogleMapInput: React.FC<GoogleMapInputProps> = ({
@@ -67,15 +67,16 @@ export const GoogleMapInput: React.FC<GoogleMapInputProps> = ({
     <GoogleMap
       mapContainerStyle={containerStyle}
       center={markerPosition} // El centro del mapa se ajusta a la posición del marcador
-      zoom={13}
+      zoom={16} // Aumentado el nivel de zoom
       onLoad={onLoad}
       onUnmount={onUnmount}
       onClick={onMapClick}
       options={{
         zoomControl: true,
         streetViewControl: false,
-        mapTypeControl: false,
+        mapTypeControl: true, // Habilitar el control para cambiar el tipo de mapa
         fullscreenControl: false,
+        mapTypeId: google.maps.MapTypeId.HYBRID, // Establecer el tipo de mapa por defecto a satélite con etiquetas
       }}
     >
       <Marker

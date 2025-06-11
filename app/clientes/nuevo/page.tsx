@@ -31,8 +31,8 @@ type Plan = {
 interface ClientFormData {
   nombre: string
   telefono: string
-  email: string
-  direccion: string
+  email?: string
+  direccion?: string
   ip: string
   region: string
   plan: string
@@ -112,8 +112,6 @@ export default function NuevoClientePage() {
     if (
       !formData.nombre.trim() ||
       !formData.telefono.trim() ||
-      !formData.email.trim() ||
-      !formData.direccion.trim() ||
       !formData.ip.trim() ||
       !formData.region.trim() ||
       formData.latitud === null ||
@@ -137,8 +135,8 @@ export default function NuevoClientePage() {
       const clienteData = {
         nombre: formData.nombre.trim(),
         telefono: formData.telefono.trim(),
-        email: formData.email.trim().toLowerCase(),
-        direccion: formData.direccion.trim(),
+        email: formData.email?.trim() || null,
+        direccion: formData.direccion?.trim() || null,
         ip: formData.ip.trim(),
         region: formData.region.trim(),
         plan: formData.plan.trim(),
@@ -268,32 +266,6 @@ export default function NuevoClientePage() {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="email">Email *</Label>
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  required
-                  placeholder="Ej: juan@ejemplo.com"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="direccion">Dirección *</Label>
-                <Textarea
-                  id="direccion"
-                  name="direccion"
-                  value={formData.direccion}
-                  onChange={handleChange}
-                  required
-                  placeholder="Ej: Calle Principal #123, Colonia Centro, Ciudad, Estado"
-                  rows={3}
-                />
-              </div>
-
               {/* Mapa de ubicación */}
               <div className="space-y-2">
                 <Label>Ubicación en el mapa *</Label>
@@ -303,6 +275,30 @@ export default function NuevoClientePage() {
                     Lat: {(formData.latitud as number).toFixed(6)}, Lng: {(formData.longitud as number).toFixed(6)}
                   </p>
                 )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={handleChange}
+                  placeholder="Ej: juan@ejemplo.com"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="direccion">Dirección</Label>
+                <Textarea
+                  id="direccion"
+                  name="direccion"
+                  value={formData.direccion}
+                  onChange={handleChange}
+                  placeholder="Ej: Calle Principal #123, Colonia Centro, Ciudad, Estado"
+                  rows={3}
+                />
               </div>
             </CardContent>
             <CardFooter className="flex justify-between">

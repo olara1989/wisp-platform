@@ -8,17 +8,108 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { createServerSupabaseClient } from "@/lib/supabase"
 import { formatCurrency, formatDate, getEstadoColor, getEstadoPagoColor } from "@/lib/utils"
-import { Edit, MapPin, Phone, Mail, ArrowLeft, Wifi, Plus } from "lucide-react"
+import { Edit, MapPin, Phone, Mail, ArrowLeft, Wifi, Plus, Globe, DollarSign, Calendar } from "lucide-react"
+import { ClientMapWrapper } from "@/components/client-map-wrapper"
+
+// Definiciones de tipos para los datos de Supabase
+interface Cliente {
+  id: string
+  nombre: string
+  telefono: string
+  email: string | null
+  direccion: string | null
+  latitud: number | null
+  longitud: number | null
+  ip: string
+  region: string
+  plan: string
+  estado: string
+  fecha_alta: string
+  notas: string | null
+  plan_details?: Plan | null // Detalles completos del plan asignado
+}
+
+interface Plan {
+  id: string
+  nombre: string
+  precio: number
+  subida: number
+  bajada: number
+  burst_subida: number | null
+  burst_bajada: number | null
+  tiempo_burst: number | null
+}
+
+interface Router {
+  id: string
+  nombre: string
+  ip: string
+}
+
+interface Dispositivo {
+  id: string
+  cliente_id: string
+  ip: string
+  mac: string
+  interface: string
+  router_id: string
+  modo_control: string
+  routers: Router | null // Relación con la tabla routers
+}
+
+interface Factura {
+  id: string
+  cliente_id: string
+  plan_id: string
+  periodo_inicio: string
+  periodo_fin: string
+  estado_pago: string
+  fecha_corte: string
+  planes: Plan // Relación con la tabla planes
+}
+
+interface Pago {
+  id: string
+  cliente_id: string
+  fecha_pago: string
+  monto: number
+  metodo: string
+  referencia: string | null
+  notas: string | null
+}
+
+// Importación dinámica del componente de mapa para evitar problemas de SSR
+// const DynamicGoogleMapInput = dynamic(() => import("@/components/ui/google-map-input").then((mod) => mod.GoogleMapInput), {
+//   ssr: false,
+//   loading: () => <p>Cargando mapa...</p>,
+// })
 
 async function getClienteData(id: string) {
   const supabase = createServerSupabaseClient()
 
   // Obtener datos del cliente
-  const { data: cliente, error } = await supabase.from("clientes").select("*").eq("id", id).single()
+  const { data: cliente, error } = await supabase.from("clientes").select("*").eq("id", id).single<Cliente>()
 
   if (error || !cliente) {
     return null
   }
+
+  // Obtener detalles del plan asignado al cliente
+  let assignedPlan: Plan | null = null;
+  if (cliente.plan) { // Asumiendo que cliente.plan guarda el ID del plan
+    const { data: planData, error: planError } = await supabase
+      .from("planes")
+      .select("id, nombre, precio")
+      .eq("id", cliente.plan)
+      .single<Plan>();
+
+    if (planData && !planError) {
+      assignedPlan = planData;
+    } else if (planError) {
+      console.error("Error al obtener el plan asignado:", planError);
+    }
+  }
+  cliente.plan_details = assignedPlan; // Asignar el plan al cliente
 
   // Obtener dispositivos del cliente
   const { data: dispositivos } = await supabase
@@ -32,6 +123,7 @@ async function getClienteData(id: string) {
       )
     `)
     .eq("cliente_id", id)
+    .returns<Dispositivo[]>()
 
   // Obtener facturación del cliente
   const { data: facturacion } = await supabase
@@ -51,6 +143,7 @@ async function getClienteData(id: string) {
     `)
     .eq("cliente_id", id)
     .order("periodo_inicio", { ascending: false })
+    .returns<Factura[]>()
 
   // Obtener pagos del cliente
   const { data: pagos } = await supabase
@@ -58,6 +151,7 @@ async function getClienteData(id: string) {
     .select("*")
     .eq("cliente_id", id)
     .order("fecha_pago", { ascending: false })
+    .returns<Pago[]>()
 
   return {
     cliente,
@@ -109,7 +203,15 @@ export default async function ClienteDetallePage({
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-start gap-2">
+                <Globe className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                <div>
+                  <p className="font-medium">IP</p>
+                  <p className="text-sm text-muted-foreground">{cliente.ip}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
                 <Phone className="h-4 w-4 mt-0.5 text-muted-foreground" />
+
                 <div>
                   <p className="font-medium">Teléfono</p>
                   <p className="text-sm text-muted-foreground">{cliente.telefono}</p>
@@ -122,26 +224,35 @@ export default async function ClienteDetallePage({
                   <p className="text-sm text-muted-foreground">{cliente.email}</p>
                 </div>
               </div>
+
               <div className="flex items-start gap-2">
-                <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                <DollarSign className="h-4 w-4 mt-0.5 text-muted-foreground" />
                 <div>
-                  <p className="font-medium">Dirección</p>
-                  <p className="text-sm text-muted-foreground">{cliente.direccion}</p>
-                  {cliente.latitud && cliente.longitud && (
-                    <a
-                      href={`https://maps.google.com/?q=${cliente.latitud},${cliente.longitud}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-primary hover:underline"
-                    >
-                      Ver en mapa
-                    </a>
+                  <p className="font-medium ">Plan Asignado</p>
+                  {cliente.plan_details ? (
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">{cliente.plan_details.nombre}</p>
+                      <p className="text-sm text-muted-foreground">Precio: {formatCurrency(cliente.plan_details.precio)}</p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No hay plan asignado directamente.</p>
                   )}
                 </div>
               </div>
-              <div>
-                <p className="font-medium">Fecha de Alta</p>
-                <p className="text-sm text-muted-foreground">{formatDate(cliente.fecha_alta)}</p>
+
+              <div className="flex items-start gap-2">
+                <Calendar className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                <div>
+                  <p className="font-medium ">Activo desde</p>
+                  <p className="text-sm text-muted-foreground">{formatDate(cliente.fecha_alta)}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                <div>
+                  <p className="font-medium">Región</p>
+                  <p className="text-sm text-muted-foreground">{cliente.region || "No especificada"}</p>
+                </div>
               </div>
               {cliente.notas && (
                 <div>
@@ -151,68 +262,20 @@ export default async function ClienteDetallePage({
               )}
             </CardContent>
           </Card>
-
           <Card>
             <CardHeader>
-              <CardTitle>Plan Actual</CardTitle>
-              <CardDescription>Información del plan contratado</CardDescription>
+              <CardTitle>Ubicación del Cliente</CardTitle>
+              <CardDescription>Ubicación registrada del cliente en el mapa</CardDescription>
             </CardHeader>
             <CardContent>
-              {facturaActual ? (
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <p className="font-medium text-lg">{facturaActual.planes.nombre}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {facturaActual.planes.subida}Mbps / {facturaActual.planes.bajada}Mbps
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold text-lg">{formatCurrency(facturaActual.planes.precio)}</p>
-                      <Badge className={getEstadoPagoColor(facturaActual.estado_pago)}>
-                        {facturaActual.estado_pago}
-                      </Badge>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 pt-2">
-                    <div>
-                      <p className="text-sm font-medium">Período</p>
-                      <p className="text-sm text-muted-foreground">
-                        {formatDate(facturaActual.periodo_inicio)} - {formatDate(facturaActual.periodo_fin)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">Fecha de Corte</p>
-                      <p className="text-sm text-muted-foreground">{formatDate(facturaActual.fecha_corte)}</p>
-                    </div>
-                  </div>
-
-                  {facturaActual.planes.burst_subida && facturaActual.planes.burst_bajada && (
-                    <div className="pt-2">
-                      <p className="text-sm font-medium">Ráfaga (Burst)</p>
-                      <p className="text-sm text-muted-foreground">
-                        {facturaActual.planes.burst_subida}Mbps / {facturaActual.planes.burst_bajada}Mbps por{" "}
-                        {facturaActual.planes.tiempo_burst} segundos
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="pt-4">
-                    <Button variant="outline" className="w-full" asChild>
-                      <Link href={`/pagos/nuevo?cliente=${cliente.id}`}>Registrar Pago</Link>
-                    </Button>
-                  </div>
+              <div className="flex items-start gap-2 mb-4">
+                <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                <div>
+                  <p className="font-medium">Dirección</p>
+                  <p className="text-sm text-muted-foreground">{cliente.direccion || "No especificada"}</p>
                 </div>
-              ) : (
-                <div className="text-center py-6">
-                  <Wifi className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                  <p className="text-muted-foreground">Este cliente no tiene un plan asignado</p>
-                  <Button className="mt-4" asChild>
-                    <Link href={`/facturacion/nuevo?cliente=${cliente.id}`}>Asignar Plan</Link>
-                  </Button>
-                </div>
-              )}
+              </div>
+              <ClientMapWrapper initialLat={cliente.latitud} initialLng={cliente.longitud} />
             </CardContent>
           </Card>
         </div>
