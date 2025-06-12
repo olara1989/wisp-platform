@@ -18,13 +18,13 @@ interface DashboardLayoutProps {
  */
 export const DashboardLayout = memo(function DashboardLayout({ children }: DashboardLayoutProps) {
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
       <Header />
       <div className="flex flex-1">
-        <aside className="hidden w-64 border-r md:block">
+        <aside className="hidden w-64 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow py-6 md:block transition-colors duration-200">
           <Sidebar />
         </aside>
-        <main className="flex-1 p-6">{children}</main>
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 mx-auto w-full max-w-7xl">{children}</main>
       </div>
     </div>
   )

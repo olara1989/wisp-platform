@@ -16,6 +16,8 @@ import { ArrowLeft, Loader2 } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { RegionSelect } from "@/components/ui/region-select"
 import dynamic from "next/dynamic"
+import { Checkbox } from "@/components/ui/checkbox"
+import { cn } from "@/lib/utils"
 
 const DynamicGoogleMapInput = dynamic(() => import("@/components/ui/google-map-input").then((mod) => mod.GoogleMapInput), {
   ssr: false,
@@ -31,13 +33,16 @@ type Plan = {
 interface ClientFormData {
   nombre: string
   telefono: string
-  email?: string
-  direccion?: string
+  email?: string | null
+  direccion?: string | null
   ip: string
   region: string
   plan: string
   latitud: number | null
   longitud: number | null
+  antena?: string | null
+  db?: number | null
+  prestada: boolean;
 }
 
 export default function NuevoClientePage() {
@@ -49,13 +54,16 @@ export default function NuevoClientePage() {
   const [formData, setFormData] = useState<ClientFormData>({
     nombre: "",
     telefono: "",
-    email: "",
-    direccion: "",
+    email: null,
+    direccion: null,
     ip: "",
     region: "",
     plan: "",
     latitud: null,
     longitud: null,
+    antena: null,
+    db: null,
+    prestada: true,
   })
   const [planes, setPlanes] = useState<Plan[]>([])
 
@@ -108,18 +116,19 @@ export default function NuevoClientePage() {
     e.preventDefault()
     console.log("[NUEVO CLIENTE] Form submitted with data:", formData)
 
-    // Validación básica
+    // Validación básica: ahora solo los campos obligatorios principales
     if (
       !formData.nombre.trim() ||
       !formData.telefono.trim() ||
       !formData.ip.trim() ||
       !formData.region.trim() ||
+      !formData.plan.trim() || // Plan ahora es requerido
       formData.latitud === null ||
       formData.longitud === null
     ) {
       toast({
         title: "Error de validación",
-        description: "Por favor completa todos los campos requeridos y selecciona una ubicación en el mapa.",
+        description: "Por favor completa todos los campos requeridos (Nombre, Teléfono, IP, Región, Plan y Ubicación).",
         variant: "destructive",
       })
       return
@@ -142,6 +151,9 @@ export default function NuevoClientePage() {
         plan: formData.plan.trim(),
         latitud: formData.latitud,
         longitud: formData.longitud,
+        antena: formData.antena || null,
+        db: formData.db !== null ? Number(formData.db) : null,
+        prestada: formData.prestada, // Incluir el valor booleano de prestada
         estado: "activo",
         fecha_alta: new Date().toISOString().split("T")[0],
       }
@@ -181,79 +193,117 @@ export default function NuevoClientePage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
       {/* Header simple sin DashboardLayout */}
-      <div className="border-b">
-        <div className="flex h-16 items-center px-4">
-          <Button variant="outline" size="icon" asChild className="mr-4">
+      <div className="sticky top-0 z-10 w-full border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm transition-colors duration-200">
+        <div className="flex h-16 items-center px-4 sm:px-6 lg:px-8 mx-auto max-w-7xl">
+          <Button variant="ghost" size="icon" asChild className="mr-4 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200">
             <Link href="/clientes">
-              <ArrowLeft className="h-4 w-4" />
+              <ArrowLeft className="h-5 w-5 text-gray-500 dark:text-gray-400 inline" />
               <span className="sr-only">Volver</span>
             </Link>
           </Button>
-          <h1 className="text-2xl font-bold">Nuevo Cliente</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Nuevo Cliente</h1>
         </div>
       </div>
 
       {/* Contenido principal */}
-      <div className="container mx-auto p-6">
-        <Card className="max-w-2xl mx-auto">
-          <form onSubmit={handleSubmit}>
-            <CardHeader>
-              <CardTitle>Información del Cliente</CardTitle>
-              <CardDescription>Ingresa los datos del nuevo cliente</CardDescription>
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Tarjeta de Información Personal y de Contacto */}
+          <Card className="max-w-2xl mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 transition-colors duration-200">
+            <CardHeader className="p-0 pb-4">
+              <CardTitle className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-0">Información Personal y de Contacto</CardTitle>
+              <CardDescription className="text-sm text-muted-foreground dark:text-gray-400">Detalles básicos del cliente y su información de contacto.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <CardContent className="p-0 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <Label htmlFor="ip">IP *</Label>
-                  <Input
-                    id="ip"
-                    name="ip"
-                    value={formData.ip}
-                    onChange={handleChange}
-                    required
-                    placeholder="Ej: x.x.1.1"
-                  />
-                </div>
-                <div className="space-y-2 col-span-2">
-                  <Label htmlFor="nombre">Nombre Completo *</Label>
+                  <Label htmlFor="nombre">Nombre Completo</Label>
                   <Input
                     id="nombre"
                     name="nombre"
                     value={formData.nombre}
                     onChange={handleChange}
+                    placeholder="Nombre y apellido del cliente"
                     required
-                    placeholder="Ej: Juan Pérez"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="telefono">Teléfono *</Label>
+                  <Label htmlFor="telefono">Teléfono</Label>
                   <Input
                     id="telefono"
                     name="telefono"
+                    type="tel"
                     value={formData.telefono}
                     onChange={handleChange}
+                    placeholder="Ej: 5512345678"
                     required
-                    placeholder="Ej: +52 55 1234 5678"
                   />
                 </div>
-                <div className="space-y-2 col-span-1">
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email (Opcional)</Label>
+                  <Input
+                    id="email"
+                    name="email"
+                    type="email"
+                    value={formData.email || ''}
+                    onChange={handleChange}
+                    placeholder="Correo electrónico del cliente"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="direccion">Dirección (Opcional)</Label>
+                  <Textarea
+                    id="direccion"
+                    name="direccion"
+                    value={formData.direccion || ''}
+                    onChange={handleChange}
+                    placeholder="Dirección completa del cliente"
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Tarjeta de Detalles de Conexión */}
+          <Card className="max-w-2xl mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 transition-colors duration-200">
+            <CardHeader className="p-0 pb-4">
+              <CardTitle className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-0">Detalles de Conexión</CardTitle>
+              <CardDescription className="text-sm text-muted-foreground dark:text-gray-400">Información técnica sobre la conexión del cliente.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label htmlFor="ip">Dirección IP</Label>
+                  <Input
+                    id="ip"
+                    name="ip"
+                    value={formData.ip}
+                    onChange={handleChange}
+                    placeholder="Ej: 192.168.1.100"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="region">Región</Label>
                   <RegionSelect
                     value={formData.region}
                     onValueChange={handleRegionChange}
-                    placeholder="Seleccione una región"
+                    placeholder="Selecciona una región"
                   />
                 </div>
-                <div className="space-y-2 col-span-1">
-                  <Label htmlFor="plan">Plan *</Label>
-                  <Select
-                    value={formData.plan}
-                    onValueChange={(value) => setFormData({ ...formData, plan: value })}
-                  >
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label htmlFor="plan">Plan Asignado</Label>
+                  <Select name="plan" value={formData.plan} onValueChange={(value) => setFormData((prev) => ({ ...prev, plan: value }))} required>
                     <SelectTrigger>
-                      <SelectValue placeholder="Seleccione un plan" />
+                      <SelectValue placeholder="Selecciona un plan" />
                     </SelectTrigger>
                     <SelectContent>
                       {planes.map((plan) => (
@@ -264,60 +314,86 @@ export default function NuevoClientePage() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="antena">Tipo de Antena</Label>
+                  <Select name="antena" value={formData.antena || ""} onValueChange={(value) => setFormData((prev) => ({ ...prev, antena: value }))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecciona el tipo de antena" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="LiteBeam M5">LiteBeam M5</SelectItem>
+                      <SelectItem value="LiteBeam M5 AC">LiteBeam M5 AC</SelectItem>
+                      <SelectItem value="Loco M2">Loco M2</SelectItem>
+                      <SelectItem value="Loco M5">Loco M5</SelectItem>
+                      <SelectItem value="Loco M5 AC">Loco M5 AC</SelectItem>
+                      <SelectItem value="AirGrid">AirGrid</SelectItem>
+                      <SelectItem value="PowerBeam M5">PowerBeam M5</SelectItem>
+                      <SelectItem value="PowerBeam M5 AC">PowerBeam M5 AC</SelectItem>
+                      <SelectItem value="Cable Ethernet">Cable Ethernet</SelectItem>
+                      <SelectItem value="Fibra Conversor">Fibra Conversor</SelectItem>
+                      <SelectItem value="Fibra Onu">Fibra Onu</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
-              {/* Mapa de ubicación */}
-              <div className="space-y-2">
-                <Label>Ubicación en el mapa *</Label>
-                <DynamicGoogleMapInput onLocationChange={handleLocationChange} />
-                {formData.latitud && formData.longitud && (
-                  <p className="text-sm text-muted-foreground">
-                    Lat: {(formData.latitud as number).toFixed(6)}, Lng: {(formData.longitud as number).toFixed(6)}
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  placeholder="Ej: juan@ejemplo.com"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="direccion">Dirección</Label>
-                <Textarea
-                  id="direccion"
-                  name="direccion"
-                  value={formData.direccion}
-                  onChange={handleChange}
-                  placeholder="Ej: Calle Principal #123, Colonia Centro, Ciudad, Estado"
-                  rows={3}
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label htmlFor="db">Valor DB</Label>
+                  <Input
+                    id="db"
+                    name="db"
+                    type="number"
+                    value={formData.db === null ? '' : formData.db} // Manejar valor nulo para el input
+                    onChange={(e) => setFormData((prev) => ({ ...prev, db: e.target.value === '' ? null : Number(e.target.value) }))}
+                    placeholder="Valor numérico de DB (Opcional)"
+                  />
+                </div>
+                {/* Checkbox para Prestada */}
+                <div className="flex items-center space-x-2 mt-8">
+                  <Checkbox
+                    id="prestada"
+                    checked={formData.prestada}
+                    onCheckedChange={(checked) => setFormData((prev) => ({ ...prev, prestada: typeof checked === 'boolean' ? checked : false }))}
+                  />
+                  <Label htmlFor="prestada">Antena Prestada</Label>
+                </div>
               </div>
             </CardContent>
-            <CardFooter className="flex justify-between">
-              <Button variant="outline" asChild>
-                <Link href="/clientes">Cancelar</Link>
-              </Button>
-              <Button type="submit" disabled={isLoading}>
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Guardando...
-                  </>
-                ) : (
-                  "Guardar Cliente"
-                )}
-              </Button>
-            </CardFooter>
-          </form>
-        </Card>
+          </Card>
+
+          {/* Tarjeta de Ubicación del Cliente */}
+          <Card className="max-w-2xl mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 transition-colors duration-200">
+            <CardHeader className="p-0 pb-4">
+              <CardTitle className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-0">Ubicación del Cliente</CardTitle>
+              <CardDescription className="text-sm text-muted-foreground dark:text-gray-400">Selecciona la ubicación del cliente en el mapa.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0 space-y-2">
+              <Label htmlFor="latitud">Ubicación en el Mapa</Label>
+              <DynamicGoogleMapInput
+                initialLat={formData.latitud || undefined}
+                initialLng={formData.longitud || undefined}
+                onLocationChange={handleLocationChange}
+              />
+              {formData.latitud && formData.longitud && (
+                <p className="text-sm text-muted-foreground dark:text-gray-400">
+                  Lat: {formData.latitud.toFixed(6)}, Lng: {formData.longitud.toFixed(6)}
+                </p>
+              )}
+              {/* Validación para asegurar que la ubicación sea seleccionada */}
+              {!formData.latitud || !formData.longitud ? (
+                <p className="text-sm text-destructive dark:text-red-400">Por favor, selecciona una ubicación en el mapa.</p>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <div className="max-w-2xl mx-auto flex justify-end pt-4">
+            <Button type="submit" disabled={isLoading}>
+              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Crear Cliente
+            </Button>
+          </div>
+        </form>
       </div>
     </div>
   )

@@ -27,6 +27,9 @@ interface Cliente {
   fecha_alta: string
   notas: string | null
   plan_details?: Plan | null // Detalles completos del plan asignado
+  antena?: string | null; // Nuevo campo
+  db?: number | null; // Nuevo campo
+  prestada?: boolean; // Nuevo campo
 }
 
 interface Plan {
@@ -178,103 +181,147 @@ export default async function ClienteDetallePage({
   return (
     <DashboardLayout>
       <div className="flex flex-col gap-6">
-        <div className="flex items-center gap-4">
-          <Button variant="outline" size="icon" asChild>
+        {/* Encabezado/tarjeta de perfil */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-8 flex items-center">
+          <Button variant="outline" size="icon" asChild className="mr-4 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200">
             <Link href="/clientes">
-              <ArrowLeft className="h-4 w-4" />
+              <ArrowLeft className="h-5 w-5 text-gray-500 dark:text-gray-400 inline" />
               <span className="sr-only">Volver</span>
             </Link>
           </Button>
-          <h1 className="text-3xl font-bold">{cliente.nombre}</h1>
-          <Badge className={getEstadoColor(cliente.estado)}>{cliente.estado}</Badge>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{cliente.nombre}</h1>
+          <Badge className={getEstadoColor(cliente.estado) + " ml-4 px-2 py-1 text-sm font-medium rounded"}>{cliente.estado}</Badge>
           <div className="ml-auto">
-            <Button asChild>
+            <Button asChild className="text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200">
               <Link href={`/clientes/${cliente.id}/editar`}>
-                <Edit className="mr-2 h-4 w-4" /> Editar
+                <Edit className="mr-2 h-5 w-5 text-gray-500 dark:text-gray-400 inline" /> Editar
               </Link>
             </Button>
           </div>
         </div>
 
         <div className="grid gap-6 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Información del Cliente</CardTitle>
+          <Card className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 transition-colors duration-200">
+            <CardHeader className="p-0 pb-4"> {/* Eliminar padding duplicado */}
+              <CardTitle className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-0">Información del Cliente</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-start gap-2">
-                <Globe className="h-4 w-4 mt-0.5 text-muted-foreground" />
-                <div>
-                  <p className="font-medium">IP</p>
-                  <p className="text-sm text-muted-foreground">{cliente.ip}</p>
+            <CardContent className="p-0 space-y-0"> {/* Eliminar padding duplicado y manejar espaciado con las filas */}
+              {/* Sección: Información Básica */}
+              <div className="space-y-0">
+                {/* Eliminar div space-y-4 aquí */}
+                {/* Reorganizar items para usar flex justify-between items-center py-2 border-b */} 
+                <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+                  <div className="flex items-center gap-2">
+                    <Mail className="h-5 w-5 mr-2 inline text-gray-500 dark:text-gray-400" />
+                    <span className="font-medium text-gray-700 dark:text-gray-200">Email:</span>
+                  </div>
+                  <span className="text-sm text-muted-foreground">{cliente.email || "No especificado"}</span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+                  <div className="flex items-center gap-2">
+                    <Phone className="h-5 w-5 mr-2 inline text-gray-500 dark:text-gray-400" />
+                    <span className="font-medium text-gray-700 dark:text-gray-200">Teléfono:</span>
+                  </div>
+                  <span className="text-sm text-muted-foreground">{cliente.telefono}</span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-5 w-5 mr-2 inline text-gray-500 dark:text-gray-400" />
+                    <span className="font-medium text-gray-700 dark:text-gray-200">Dirección:</span>
+                  </div>
+                  <span className="text-sm text-muted-foreground">{cliente.direccion || "No especificada"}</span>
                 </div>
               </div>
-              <div className="flex items-start gap-2">
-                <Phone className="h-4 w-4 mt-0.5 text-muted-foreground" />
 
-                <div>
-                  <p className="font-medium">Teléfono</p>
-                  <p className="text-sm text-muted-foreground">{cliente.telefono}</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-2">
-                <Mail className="h-4 w-4 mt-0.5 text-muted-foreground" />
-                <div>
-                  <p className="font-medium">Email</p>
-                  <p className="text-sm text-muted-foreground">{cliente.email}</p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-2">
-                <DollarSign className="h-4 w-4 mt-0.5 text-muted-foreground" />
-                <div>
-                  <p className="font-medium ">Plan Asignado</p>
-                  {cliente.plan_details ? (
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium">{cliente.plan_details.nombre}</p>
-                      <p className="text-sm text-muted-foreground">Precio: {formatCurrency(cliente.plan_details.precio)}</p>
+              {/* Sección: Detalles de Conexión */}
+              <div className="space-y-0 mt-6"> {/* Añadir margen superior para separar secciones */}
+                <h3 className="font-semibold text-lg text-gray-800 dark:text-gray-200 mb-4">Detalles de Conexión</h3>
+                <div className="grid grid-cols-1 gap-0">
+                  <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+                    <div className="flex items-center gap-2">
+                      <Globe className="h-5 w-5 mr-2 inline text-gray-500 dark:text-gray-400" />
+                      <span className="font-medium text-gray-700 dark:text-gray-200">IP:</span>
                     </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">No hay plan asignado directamente.</p>
-                  )}
+                    <span className="text-sm text-muted-foreground">{cliente.ip}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="h-5 w-5 mr-2 inline text-gray-500 dark:text-gray-400" />
+                      <span className="font-medium text-gray-700 dark:text-gray-200">Plan Asignado:</span>
+                    </div>
+                    {cliente.plan_details ? (
+                      <span className="text-sm text-muted-foreground">
+                        {cliente.plan_details.nombre} - {formatCurrency(cliente.plan_details.precio)}
+                      </span>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">No hay plan asignado directamente.</span>
+                    )}
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-5 w-5 mr-2 inline text-gray-500 dark:text-gray-400" />
+                      <span className="font-medium text-gray-700 dark:text-gray-200">Activo desde:</span>
+                    </div>
+                    <span className="text-sm text-muted-foreground">{formatDate(cliente.fecha_alta)}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="h-5 w-5 mr-2 inline text-gray-500 dark:text-gray-400" />
+                      <span className="font-medium text-gray-700 dark:text-gray-200">Región:</span>
+                    </div>
+                    <span className="text-sm text-muted-foreground">{cliente.region || "No especificada"}</span>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-start gap-2">
-                <Calendar className="h-4 w-4 mt-0.5 text-muted-foreground" />
-                <div>
-                  <p className="font-medium ">Activo desde</p>
-                  <p className="text-sm text-muted-foreground">{formatDate(cliente.fecha_alta)}</p>
+              {/* Sección: Información de Antena */}
+              <div className="space-y-0 mt-6"> {/* Añadir margen superior para separar secciones */}
+                <h3 className="font-semibold text-lg text-gray-800 dark:text-gray-200 mb-4">Información de Antena</h3>
+                <div className="grid grid-cols-1 gap-0">
+                  <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+                    <div className="flex items-center gap-2">
+                      <Wifi className="h-5 w-5 mr-2 inline text-gray-500 dark:text-gray-400" />
+                      <span className="font-medium text-gray-700 dark:text-gray-200">Tipo de Antena:</span>
+                    </div>
+                    <span className="text-sm text-muted-foreground">{cliente.antena || "No especificada"}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+                    <div className="flex items-center gap-2">
+                      <Globe className="h-5 w-5 mr-2 inline text-gray-500 dark:text-gray-400" />
+                      <span className="font-medium text-gray-700 dark:text-gray-200">Valor DB:</span>
+                    </div>
+                    <span className="text-sm text-muted-foreground">{cliente.db !== null ? cliente.db : "No especificado"}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="h-5 w-5 mr-2 inline text-gray-500 dark:text-gray-400" />
+                      <span className="font-medium text-gray-700 dark:text-gray-200">Estado Antena:</span>
+                    </div>
+                    <span className="text-sm text-muted-foreground">
+                      {typeof cliente.prestada === 'boolean' ? (cliente.prestada ? "Prestada" : "Propia") : "No especificado"}
+                    </span>
+                  </div>
                 </div>
               </div>
-              <div className="flex items-start gap-2">
-                <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground" />
-                <div>
-                  <p className="font-medium">Región</p>
-                  <p className="text-sm text-muted-foreground">{cliente.region || "No especificada"}</p>
-                </div>
-              </div>
+
+              {/* Sección: Notas */}
               {cliente.notas && (
-                <div>
-                  <p className="font-medium">Notas</p>
-                  <p className="text-sm text-muted-foreground whitespace-pre-line">{cliente.notas}</p>
+                <div className="space-y-0 mt-6">
+                  <h3 className="font-semibold text-lg text-gray-800 dark:text-gray-200 mb-4">Notas Adicionales</h3>
+                  <div className="flex items-start gap-2">
+                    <span className="text-sm text-muted-foreground whitespace-pre-line">{cliente.notas}</span>
+                  </div>
                 </div>
               )}
+
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Ubicación del Cliente</CardTitle>
-              <CardDescription>Ubicación registrada del cliente en el mapa</CardDescription>
+          <Card className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 transition-colors duration-200">
+            <CardHeader className="p-0 pb-4">
+              <CardTitle className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-0">Ubicación del Cliente</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="flex items-start gap-2 mb-4">
-                <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground" />
-                <div>
-                  <p className="font-medium">Dirección</p>
-                  <p className="text-sm text-muted-foreground">{cliente.direccion || "No especificada"}</p>
-                </div>
-              </div>
+            <CardContent className="p-0">
+              {/* Se eliminó la dirección de aquí */}
               <ClientMapWrapper initialLat={cliente.latitud} initialLng={cliente.longitud} />
             </CardContent>
           </Card>

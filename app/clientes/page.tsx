@@ -45,7 +45,7 @@ const getClientes = cache(async (estado?: string, buscar?: string, regiones?: st
           nombre
         )
       `)
-      .order("nombre")
+      .order("ip", { ascending: true })
 
     // Filtrar por estado si se proporciona
     if (estado && estado !== "todos") {

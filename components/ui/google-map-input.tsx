@@ -2,6 +2,8 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { GoogleMap, Marker, useJsApiLoader } from '@react-google-maps/api'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 interface GoogleMapInputProps {
   initialLat?: number
@@ -25,10 +27,22 @@ export const GoogleMapInput: React.FC<GoogleMapInputProps> = ({
   onLocationChange,
 }) => {
   const [mounted, setMounted] = useState(false)
+  const [mapType, setMapType] = useState<google.maps.MapTypeId | null>(null)
+
+  const { isLoaded, loadError } = useJsApiLoader({
+    id: 'google-map-script',
+    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
+  })
 
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  useEffect(() => {
+    if (isLoaded && window.google) {
+      setMapType(window.google.maps.MapTypeId.HYBRID)
+    }
+  }, [isLoaded])
 
   const [markerPosition, setMarkerPosition] = useState<google.maps.LatLngLiteral>(() => ({
     lat: initialLat || defaultCenter.lat,
@@ -36,14 +50,8 @@ export const GoogleMapInput: React.FC<GoogleMapInputProps> = ({
   }))
   const mapRef = useRef<google.maps.Map | null>(null)
 
-  const { isLoaded, loadError } = useJsApiLoader({
-    id: 'google-map-script',
-    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
-  })
-
   const onLoad = useCallback((map: google.maps.Map) => {
     mapRef.current = map
-    // Asegurar que la ubicación inicial se envíe al formulario
     onLocationChange(markerPosition.lat, markerPosition.lng)
   }, [onLocationChange, markerPosition])
 
@@ -61,36 +69,58 @@ export const GoogleMapInput: React.FC<GoogleMapInputProps> = ({
   }, [onLocationChange])
 
   if (loadError) return <div>Error al cargar el mapa.</div>
-  if (!isLoaded || !mounted) return <div>Cargando mapa...</div>
+  if (!isLoaded || !mounted || !mapType) return <div>Cargando mapa...</div>
 
   return (
-    <GoogleMap
-      mapContainerStyle={containerStyle}
-      center={markerPosition} // El centro del mapa se ajusta a la posición del marcador
-      zoom={16} // Aumentado el nivel de zoom
-      onLoad={onLoad}
-      onUnmount={onUnmount}
-      onClick={onMapClick}
-      options={{
-        zoomControl: true,
-        streetViewControl: false,
-        mapTypeControl: true, // Habilitar el control para cambiar el tipo de mapa
-        fullscreenControl: false,
-        mapTypeId: google.maps.MapTypeId.HYBRID, // Establecer el tipo de mapa por defecto a satélite con etiquetas
-      }}
-    >
-      <Marker
-        position={markerPosition}
-        draggable={true} // Permite arrastrar el marcador
-        onDragEnd={(e) => {
-          if (e.latLng) {
-            const newLat = e.latLng.lat()
-            const newLng = e.latLng.lng()
-            setMarkerPosition({ lat: newLat, lng: newLng })
-            onLocationChange(newLat, newLng)
-          }
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 transition-colors duration-200">
+      <div className="flex space-x-2 mb-2">
+        <Button
+          onClick={() => setMapType(window.google.maps.MapTypeId.ROADMAP)}
+          className={cn(
+            "px-3 py-1 border rounded text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200",
+            mapType === window.google.maps.MapTypeId.ROADMAP ? "bg-gray-100 dark:bg-gray-700" : ""
+          )}
+        >
+          Mapa
+        </Button>
+        <Button
+          onClick={() => setMapType(window.google.maps.MapTypeId.HYBRID)}
+          className={cn(
+            "px-3 py-1 border rounded text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200",
+            mapType === window.google.maps.MapTypeId.HYBRID ? "bg-gray-100 dark:bg-gray-700" : ""
+          )}
+        >
+          Satélite
+        </Button>
+      </div>
+      <GoogleMap
+        mapContainerStyle={containerStyle}
+        center={markerPosition}
+        zoom={16}
+        onLoad={onLoad}
+        onUnmount={onUnmount}
+        onClick={onMapClick}
+        options={{
+          zoomControl: true,
+          streetViewControl: false,
+          mapTypeControl: false,
+          fullscreenControl: false,
+          mapTypeId: mapType,
         }}
-      />
-    </GoogleMap>
+      >
+        <Marker
+          position={markerPosition}
+          draggable={true}
+          onDragEnd={(e) => {
+            if (e.latLng) {
+              const newLat = e.latLng.lat()
+              const newLng = e.latLng.lng()
+              setMarkerPosition({ lat: newLat, lng: newLng })
+              onLocationChange(newLat, newLng)
+            }
+          }}
+        />
+      </GoogleMap>
+    </div>
   )
 } 

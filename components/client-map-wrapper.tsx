@@ -19,22 +19,22 @@ export const ClientMapWrapper: React.FC<ClientMapWrapperProps> = ({
 }) => {
   if (initialLat === null || initialLng === null) {
     return (
-      <div className="text-center py-6">
-        <p className="text-muted-foreground">No hay ubicación registrada para este cliente</p>
+      <div className="text-center py-6 text-muted-foreground dark:text-gray-400">
+        <p>No hay ubicación registrada para este cliente</p>
       </div>
     )
   }
 
   return (
-    <div className="space-y-2">
+    <>
       <DynamicGoogleMapInput
         initialLat={initialLat}
         initialLng={initialLng}
         onLocationChange={() => {}} // La ubicación es fija para la vista de detalle
       />
-      <p className="text-sm text-muted-foreground">
+      <p className="text-sm text-muted-foreground mt-2 dark:text-gray-400">
         Lat: {initialLat.toFixed(6)}, Lng: {initialLng.toFixed(6)}
       </p>
-    </div>
+    </>
   )
 } 

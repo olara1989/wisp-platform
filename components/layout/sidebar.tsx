@@ -102,21 +102,24 @@ export const Sidebar = memo(function Sidebar({ className }: SidebarProps) {
     <div className={cn("flex flex-col h-full", className)}>
       <div className="flex-1 py-4">
         <div className="px-3 py-2">
-          <h2 className="mb-2 px-4 text-lg font-semibold tracking-tight">WISP Manager</h2>
+          <h2 className="mb-2 px-4 text-lg font-semibold tracking-tight text-gray-900 dark:text-white">WISP Manager</h2>
           <div className="space-y-1">
             <ScrollArea className="h-[calc(100vh-10rem)]">
               {filteredRoutes.map((route) => (
                 <Button
                   key={route.href}
-                  variant={route.active ? "secondary" : "ghost"}
+                  variant="ghost"
                   size="sm"
-                  className={cn("w-full justify-start", {
-                    "bg-secondary": route.active,
-                  })}
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-2 rounded w-full justify-start transition-colors duration-200",
+                    route.active
+                      ? "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white"
+                      : "text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  )}
                   asChild
                 >
                   <Link href={route.href}>
-                    <route.icon className="mr-2 h-4 w-4" />
+                    <route.icon className="mr-2 h-4 w-4 text-gray-500 dark:text-gray-400 inline" />
                     {route.label}
                   </Link>
                 </Button>
@@ -125,9 +128,14 @@ export const Sidebar = memo(function Sidebar({ className }: SidebarProps) {
           </div>
         </div>
       </div>
-      <div className="px-3 py-2 mt-auto border-t">
-        <Button variant="outline" size="sm" className="w-full justify-start" onClick={() => signOut()}>
-          <LogOut className="mr-2 h-4 w-4" />
+      <div className="px-3 py-2 mt-auto border-t border-gray-200 dark:border-gray-700">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200"
+          onClick={() => signOut()}
+        >
+          <LogOut className="mr-2 h-4 w-4 text-gray-500 dark:text-gray-400 inline" />
           Cerrar Sesión
         </Button>
       </div>
