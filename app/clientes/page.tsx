@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cache } from "react"
 import { ClientesFilterForm } from "@/components/clientes-filter-form"
 import { REGIONES } from "@/lib/types/regiones"
+import { TableStatusSelector } from "@/components/ui/table-status-selector"
 
 interface Cliente {
   id: string
@@ -47,9 +48,9 @@ const getClientes = cache(async (estado?: string, buscar?: string, regiones?: st
       `)
       .order("ip", { ascending: true })
 
-    // Filtrar por estado si se proporciona
+    // Filtrar por estado si se proporciona y no es "todos"
     if (estado && estado !== "todos") {
-      query = query.eq("estado", estado)
+      query = query.eq("estado", estado.toLowerCase())
     }
 
     // Buscar por nombre, email o teléfono
@@ -166,7 +167,7 @@ export default async function ClientesPage({
                     <TableCell>{formatDate(cliente.fecha_alta)}</TableCell>
                     <TableCell>{cliente.region || "N/A"}</TableCell>
                     <TableCell>
-                      <Badge className={getEstadoColor(cliente.estado)}>{cliente.estado}</Badge>
+                      <TableStatusSelector clienteId={cliente.id} estadoActual={cliente.estado} />
                     </TableCell>
                     <TableCell className="text-right">
                       <Button variant="ghost" size="sm" asChild>

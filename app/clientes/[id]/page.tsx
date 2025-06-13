@@ -10,6 +10,7 @@ import { createServerSupabaseClient } from "@/lib/supabase"
 import { formatCurrency, formatDate, getEstadoColor, getEstadoPagoColor } from "@/lib/utils"
 import { Edit, MapPin, Phone, Mail, ArrowLeft, Wifi, Plus, Globe, DollarSign, Calendar } from "lucide-react"
 import { ClientMapWrapper } from "@/components/client-map-wrapper"
+import { StatusSelector } from "@/components/ui/status-selector"
 
 // Definiciones de tipos para los datos de Supabase
 interface Cliente {
@@ -190,7 +191,9 @@ export default async function ClienteDetallePage({
             </Link>
           </Button>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{cliente.nombre}</h1>
-          <Badge className={getEstadoColor(cliente.estado) + " ml-4 px-2 py-1 text-sm font-medium rounded"}>{cliente.estado}</Badge>
+          <div className="ml-4">
+            <StatusSelector clienteId={cliente.id} estadoActual={cliente.estado} />
+          </div>
           <div className="ml-auto">
             <Button asChild className="text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200">
               <Link href={`/clientes/${cliente.id}/editar`}>

@@ -8,10 +8,20 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { MultiSelectRegionFilter } from "@/components/ui/multi-select-region-filter"
+import { Badge } from "@/components/ui/badge"
+import { getEstadoColor } from "@/lib/utils"
 
 interface ClientesFilterFormProps {
   uniqueRegions: string[]
 }
+
+const estados = [
+  "activo",
+  "cortado",
+  "recoger equipo",
+  "pausado",
+  "suspendido"
+] as const
 
 export function ClientesFilterForm({ uniqueRegions }: ClientesFilterFormProps) {
   const router = useRouter()
@@ -19,45 +29,34 @@ export function ClientesFilterForm({ uniqueRegions }: ClientesFilterFormProps) {
 
   const [estado, setEstado] = useState(searchParams.get("estado") || "todos")
   const [buscar, setBuscar] = useState(searchParams.get("buscar") || "")
-  // No necesitamos un estado para las regiones aquí, ya que MultiSelectRegionFilter lo maneja internamente
 
-  // Sincronizar el estado interno con los search params si cambian externamente
   useEffect(() => {
     setEstado(searchParams.get("estado") || "todos")
     setBuscar(searchParams.get("buscar") || "")
   }, [searchParams])
 
-  const createQueryString = useCallback(
-    (name: string, value: string) => {
-      const params = new URLSearchParams(searchParams.toString())
-      if (value) {
-        params.set(name, value)
-      } else {
-        params.delete(name)
-      }
-      // Asegurarse de que el parámetro 'region' no se borre accidentalmente
-      return params.toString()
-    },
-    [searchParams]
-  )
+  const handleEstadoChange = (newEstado: string) => {
+    setEstado(newEstado)
+    const params = new URLSearchParams(searchParams.toString())
+    
+    if (newEstado && newEstado !== "todos") {
+      params.set("estado", newEstado)
+    } else {
+      params.delete("estado")
+    }
+    
+    router.push(`?${params.toString()}`)
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const params = new URLSearchParams(searchParams.toString())
-
-    if (estado && estado !== "todos") {
-      params.set("estado", estado)
-    } else {
-      params.delete("estado")
-    }
 
     if (buscar) {
       params.set("buscar", buscar)
     } else {
       params.delete("buscar")
     }
-
-    // Las regiones ya son manejadas por MultiSelectRegionFilter directamente en la URL
 
     router.push(`?${params.toString()}`)
   }
@@ -66,16 +65,29 @@ export function ClientesFilterForm({ uniqueRegions }: ClientesFilterFormProps) {
     <form className="flex flex-col sm:flex-row gap-4" onSubmit={handleSubmit}>
       <div className="flex items-center gap-2">
         <Filter className="h-4 w-4 text-muted-foreground" />
-        <Select name="estado" value={estado} onValueChange={setEstado}>
+        <Select 
+          name="estado" 
+          value={estado} 
+          onValueChange={handleEstadoChange}
+        >
           <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Estado" />
+            <SelectValue placeholder="Estado">
+              {estado !== "todos" && (
+                <Badge className={getEstadoColor(estado) + " px-2 py-0.5 text-xs font-medium rounded"}>
+                  {estado}
+                </Badge>
+              )}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="todos">Todos</SelectItem>
-            <SelectItem value="activo">Activo</SelectItem>
-            <SelectItem value="moroso">Moroso</SelectItem>
-            <SelectItem value="suspendido">Suspendido</SelectItem>
-            <SelectItem value="baja">Baja</SelectItem>
+            <SelectItem value="todos">Todos los estados</SelectItem>
+            {estados.map((estado) => (
+              <SelectItem key={estado} value={estado}>
+                <Badge className={getEstadoColor(estado) + " px-2 py-0.5 text-xs font-medium rounded"}>
+                  {estado}
+                </Badge>
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>

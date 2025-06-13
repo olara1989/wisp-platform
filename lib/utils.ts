@@ -43,21 +43,25 @@ export function formatDate(date: string | Date) {
 /**
  * Obtiene la clase de color según el estado del cliente
  *
- * @param estado Estado del cliente (activo, moroso, suspendido, baja)
+ * @param estado Estado del cliente
  * @returns Clases de Tailwind para el color del estado
  */
-export function getEstadoColor(estado: string) {
+export function getEstadoColor(estado: string | null | undefined) {
+  if (!estado) return "bg-gray-100 text-gray-800"
+
   switch (estado.toLowerCase()) {
     case "activo":
       return "bg-green-100 text-green-800"
-    case "moroso":
+    case "cortado":
+      return "bg-red-100 text-red-800"
+    case "recoger equipo":
+      return "bg-orange-100 text-orange-800"
+    case "pausado":
       return "bg-yellow-100 text-yellow-800"
     case "suspendido":
-      return "bg-red-100 text-red-800"
-    case "baja":
-      return "bg-gray-100 text-gray-800"
+      return "bg-purple-100 text-purple-800"
     default:
-      return "bg-blue-100 text-blue-800"
+      return "bg-gray-100 text-gray-800"
   }
 }
 
