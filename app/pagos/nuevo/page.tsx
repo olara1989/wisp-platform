@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
@@ -18,6 +18,38 @@ import { reactivarCliente } from "@/lib/mikrotik"
 import { formatCurrency } from "@/lib/utils"
 import { ArrowLeft, Loader2 } from "lucide-react"
 
+// Definir tipos para cliente y facturación
+interface Cliente {
+  id: string
+  nombre: string
+  [key: string]: any
+}
+interface Facturacion {
+  id: string
+  planes?: { id: string; nombre: string; precio: number } | null
+  estado_pago?: string
+  [key: string]: any
+}
+
+const MESES = [
+  { id: 1, nombre: "Enero" },
+  { id: 2, nombre: "Febrero" },
+  { id: 3, nombre: "Marzo" },
+  { id: 4, nombre: "Abril" },
+  { id: 5, nombre: "Mayo" },
+  { id: 6, nombre: "Junio" },
+  { id: 7, nombre: "Julio" },
+  { id: 8, nombre: "Agosto" },
+  { id: 9, nombre: "Septiembre" },
+  { id: 10, nombre: "Octubre" },
+  { id: 11, nombre: "Noviembre" },
+  { id: 12, nombre: "Diciembre" },
+]
+const fechaActual = new Date()
+const mesActual = fechaActual.getMonth() + 1
+const anioActual = fechaActual.getFullYear()
+const ANIOS = [anioActual - 1, anioActual, anioActual + 1, anioActual + 2]
+
 export default function NuevoPagoPage() {
   const navigation = useRouter()
   const searchParams = useSearchParams()
@@ -26,11 +58,14 @@ export default function NuevoPagoPage() {
 
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
-  const [clientes, setClientes] = useState<any[]>([])
-  const [clienteSeleccionado, setClienteSeleccionado] = useState<any>(null)
-  const [facturacion, setFacturacion] = useState<any>(null)
+  const [clientes, setClientes] = useState<Cliente[]>([])
+  const [clienteSeleccionado, setClienteSeleccionado] = useState<Cliente | null>(null)
+  const [facturacion, setFacturacion] = useState<Facturacion | null>(null)
   const [dispositivo, setDispositivo] = useState<any>(null)
   const [routerData, setRouterData] = useState<any>(null)
+  const [clienteInput, setClienteInput] = useState("")
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const registrarBtnRef = useRef<HTMLButtonElement>(null)
 
   const [formData, setFormData] = useState({
     cliente_id: "",
@@ -39,23 +74,21 @@ export default function NuevoPagoPage() {
     referencia: "",
     notas: "",
     fecha_pago: new Date().toISOString().split("T")[0],
+    mes: mesActual.toString(),
+    anio: anioActual.toString(),
   })
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         const supabase = createClientSupabaseClient()
-
-        // Obtener lista de clientes
-        const { data: clientesData } = await supabase.from("clientes").select("*").order("nombre")
-
-        setClientes(clientesData || [])
-
-        // Si se proporciona un ID de cliente, seleccionarlo
+        const { data: clientesData } = await supabase.from("clientes").select("* ").order("nombre")
+        setClientes(clientesData as Cliente[] || [])
         if (clienteId) {
-          const cliente = clientesData?.find((c) => c.id === clienteId)
+          const cliente = (clientesData as Cliente[] | undefined)?.find((c) => c.id === clienteId)
           if (cliente) {
-            setFormData((prev) => ({ ...prev, cliente_id: cliente.id }))
+            setFormData((prev) => ({ ...prev, cliente_id: String(cliente.id) }))
+            setClienteInput(cliente.nombre)
             await fetchClienteData(cliente.id)
           }
         }
@@ -65,51 +98,49 @@ export default function NuevoPagoPage() {
         setIsLoading(false)
       }
     }
-
     fetchData()
   }, [clienteId])
 
   const fetchClienteData = async (id: string) => {
     try {
       const supabase = createClientSupabaseClient()
-
-      // Obtener cliente
       const { data: cliente } = await supabase.from("clientes").select("*").eq("id", id).single()
-
-      setClienteSeleccionado(cliente)
-
+      setClienteSeleccionado(cliente as Cliente)
       // Obtener facturación actual
       const { data: facturacionData } = await supabase
         .from("facturacion")
-        .select(`
-          *,
-          planes:plan_id (
-            id,
-            nombre,
-            precio
-          )
-        `)
+        .select(`*, planes:plan_id (id, nombre, precio)`)
         .eq("cliente_id", id)
         .order("periodo_inicio", { ascending: false })
         .limit(1)
         .single()
-
-      setFacturacion(facturacionData)
-
-      if (facturacionData?.planes?.precio) {
-        setFormData((prev) => ({ ...prev, monto: facturacionData.planes.precio.toString() }))
+      // Validar que planes sea un objeto y tenga precio
+      let planPrecio = ""
+      let planNombre = ""
+      let planOk = false
+      if (
+        facturacionData &&
+        typeof facturacionData === 'object' &&
+        facturacionData.planes &&
+        typeof facturacionData.planes === 'object' &&
+        'precio' in facturacionData.planes &&
+        typeof facturacionData.planes.precio === 'number'
+      ) {
+        planPrecio = facturacionData.planes.precio.toString()
+        planNombre = facturacionData.planes.nombre
+        planOk = true
+        setFormData((prev) => ({ ...prev, monto: planPrecio }))
+        setTimeout(() => {
+          registrarBtnRef.current?.focus()
+        }, 100)
       }
-
+      setFacturacion(facturacionData && facturacionData.id ? facturacionData as Facturacion : null)
       // Obtener dispositivo y router
       const { data: dispositivoData } = await supabase
         .from("dispositivos")
-        .select(`
-          *,
-          routers:router_id (*)
-        `)
+        .select(`*, routers:router_id (*)`)
         .eq("cliente_id", id)
         .single()
-
       if (dispositivoData) {
         setDispositivo(dispositivoData)
         setRouterData(dispositivoData.routers)
@@ -119,9 +150,26 @@ export default function NuevoPagoPage() {
     }
   }
 
-  const handleClienteChange = async (id: string) => {
-    setFormData((prev) => ({ ...prev, cliente_id: id }))
-    await fetchClienteData(id)
+  const handleClienteInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setClienteInput(e.target.value)
+    setShowSuggestions(true)
+    setFormData((prev) => ({ ...prev, cliente_id: "" }))
+    setClienteSeleccionado(null)
+    setFacturacion(null)
+  }
+
+  const handleClienteSelect = async (cliente: any) => {
+    setClienteInput(cliente.nombre)
+    setShowSuggestions(false)
+    setFormData((prev) => ({ ...prev, cliente_id: String(cliente.id) }))
+    await fetchClienteData(cliente.id)
+  }
+
+  const handleClienteInputKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && clienteSeleccionado) {
+      registrarBtnRef.current?.focus()
+      setShowSuggestions(false)
+    }
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -133,6 +181,13 @@ export default function NuevoPagoPage() {
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
+  const handleMesChange = (value: string) => {
+    setFormData((prev) => ({ ...prev, mes: value }))
+  }
+  const handleAnioChange = (value: string) => {
+    setFormData((prev) => ({ ...prev, anio: value }))
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSaving(true)
@@ -140,12 +195,14 @@ export default function NuevoPagoPage() {
     try {
       const supabase = createClientSupabaseClient()
 
-      // Registrar el pago
+      // Registrar el pago, incluyendo mes y anio
       const { data: pago, error: pagoError } = await supabase
         .from("pagos")
         .insert({
           ...formData,
           monto: Number.parseFloat(formData.monto),
+          mes: formData.mes,
+          anio: formData.anio,
         })
         .select()
 
@@ -216,26 +273,42 @@ export default function NuevoPagoPage() {
       </div>
 
       <Card>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} autoComplete="off">
           <CardHeader>
             <CardTitle>Información del Pago</CardTitle>
             <CardDescription>Registra un nuevo pago para el cliente</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="space-y-2">
+            <div className="space-y-2 relative">
               <Label htmlFor="cliente_id">Cliente</Label>
-              <Select value={formData.cliente_id} onValueChange={handleClienteChange} disabled={!!clienteId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar cliente" />
-                </SelectTrigger>
-                <SelectContent>
-                  {clientes.map((cliente) => (
-                    <SelectItem key={cliente.id} value={cliente.id}>
+              <Input
+                id="cliente_id"
+                name="cliente_id"
+                value={clienteInput}
+                onChange={handleClienteInput}
+                onFocus={() => setShowSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                onKeyDown={handleClienteInputKeyDown}
+                placeholder="Buscar cliente por nombre"
+                autoComplete="off"
+                required
+              />
+              {showSuggestions && clienteInput && (
+                <div className="absolute z-10 bg-white dark:bg-gray-800 border rounded w-full max-h-60 overflow-y-auto shadow">
+                  {clientes.filter(c => c.nombre.toLowerCase().includes(clienteInput.toLowerCase())).length === 0 && (
+                    <div className="p-2 text-sm text-muted-foreground">No hay resultados</div>
+                  )}
+                  {clientes.filter(c => c.nombre.toLowerCase().includes(clienteInput.toLowerCase())).map((cliente) => (
+                    <div
+                      key={cliente.id}
+                      className="p-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+                      onMouseDown={() => handleClienteSelect(cliente)}
+                    >
                       {cliente.nombre}
-                    </SelectItem>
+                    </div>
                   ))}
-                </SelectContent>
-              </Select>
+                </div>
+              )}
             </div>
 
             {clienteSeleccionado && facturacion && (
@@ -244,11 +317,11 @@ export default function NuevoPagoPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-sm font-medium">Plan</p>
-                    <p className="text-sm text-muted-foreground">{facturacion.planes.nombre}</p>
+                    <p className="text-sm text-muted-foreground">{facturacion.planes && typeof facturacion.planes === 'object' ? facturacion.planes.nombre : ''}</p>
                   </div>
                   <div>
                     <p className="text-sm font-medium">Precio</p>
-                    <p className="text-sm text-muted-foreground">{formatCurrency(facturacion.planes.precio)}</p>
+                    <p className="text-sm text-muted-foreground">{formatCurrency(facturacion.planes && typeof facturacion.planes === 'object' && typeof facturacion.planes.precio === 'number' ? facturacion.planes.precio : 0)}</p>
                   </div>
                   <div>
                     <p className="text-sm font-medium">Estado</p>
@@ -261,6 +334,35 @@ export default function NuevoPagoPage() {
                 </div>
               </div>
             )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="mes">Mes</Label>
+                <Select value={formData.mes} onValueChange={handleMesChange} name="mes">
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar mes" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MESES.map((mes) => (
+                      <SelectItem key={mes.id} value={mes.id.toString()}>{mes.nombre}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="anio">Año</Label>
+                <Select value={formData.anio} onValueChange={handleAnioChange} name="anio">
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar año" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ANIOS.map((anio) => (
+                      <SelectItem key={anio} value={anio.toString()}>{anio}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
@@ -326,7 +428,7 @@ export default function NuevoPagoPage() {
             <Button variant="outline" asChild>
               <Link href={clienteId ? `/clientes/${clienteId}` : "/pagos"}>Cancelar</Link>
             </Button>
-            <Button type="submit" disabled={isSaving || !formData.cliente_id}>
+            <Button ref={registrarBtnRef} type="submit" disabled={isSaving || !formData.cliente_id}>
               {isSaving ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

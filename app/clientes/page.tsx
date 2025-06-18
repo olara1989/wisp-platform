@@ -6,13 +6,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { createServerSupabaseClient } from "@/lib/supabase"
 import { formatDate, getEstadoColor } from "@/lib/utils"
-import { Plus, Search, Filter } from "lucide-react"
+import { Plus, Search, Filter, Eye, Pencil } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cache } from "react"
 import { ClientesFilterForm } from "@/components/clientes-filter-form"
 import { REGIONES } from "@/lib/types/regiones"
 import { TableStatusSelector } from "@/components/ui/table-status-selector"
+import { DeleteClienteButton } from "@/components/delete-cliente-button"
+import { ClientesPagination } from "@/components/clientes-pagination"
 
 interface Cliente {
   id: string
@@ -33,11 +35,36 @@ interface Cliente {
   } | null
 }
 
-// Usar cache para evitar múltiples llamadas a la base de datos
-const getClientes = cache(async (estado?: string, buscar?: string, regiones?: string | string[]): Promise<Cliente[]> => {
+const getClientes = cache(async (
+  estado?: string, 
+  buscar?: string, 
+  regiones?: string | string[],
+  page: number = 1,
+  pageSize: number = 20
+): Promise<{ data: Cliente[], total: number }> => {
   try {
     const supabase = createServerSupabaseClient()
 
+    // Primero obtenemos el total de registros
+    let countQuery = supabase
+      .from("clientes")
+      .select("*", { count: "exact", head: true })
+
+    // Aplicamos los mismos filtros al conteo
+    if (estado && estado !== "todos") {
+      countQuery = countQuery.eq("estado", estado.toLowerCase())
+    }
+    if (buscar) {
+      countQuery = countQuery.or(`nombre.ilike.%${buscar}%,email.ilike.%${buscar}%,telefono.ilike.%${buscar}%`)
+    }
+    if (regiones && regiones.length > 0) {
+      const regionArray = Array.isArray(regiones) ? regiones : [regiones]
+      countQuery = countQuery.in("region", regionArray)
+    }
+
+    const { count } = await countQuery
+
+    // Luego obtenemos los datos paginados
     let query = supabase
       .from("clientes")
       .select(`
@@ -47,18 +74,14 @@ const getClientes = cache(async (estado?: string, buscar?: string, regiones?: st
         )
       `)
       .order("ip", { ascending: true })
+      .range((page - 1) * pageSize, page * pageSize - 1)
 
-    // Filtrar por estado si se proporciona y no es "todos"
     if (estado && estado !== "todos") {
       query = query.eq("estado", estado.toLowerCase())
     }
-
-    // Buscar por nombre, email o teléfono
     if (buscar) {
       query = query.or(`nombre.ilike.%${buscar}%,email.ilike.%${buscar}%,telefono.ilike.%${buscar}%`)
     }
-
-    // Filtrar por región(es) si se proporciona
     if (regiones && regiones.length > 0) {
       const regionArray = Array.isArray(regiones) ? regiones : [regiones]
       query = query.in("region", regionArray)
@@ -68,51 +91,55 @@ const getClientes = cache(async (estado?: string, buscar?: string, regiones?: st
 
     if (error) {
       console.error("Error al obtener clientes:", error)
-      return []
+      return { data: [], total: 0 }
     }
 
-    return data || []
+    return { data: data || [], total: count || 0 }
   } catch (error) {
     console.error("Error al obtener clientes:", error)
-    return []
+    return { data: [], total: 0 }
   }
 })
 
 // Nueva función cacheada para obtener regiones únicas
-// const getUniqueRegions = cache(async (): Promise<string[]> => {
-//   try {
-//     const supabase = createServerSupabaseClient()
-//     const { data, error } = await supabase
-//       .from("clientes")
-//       .select("region")
-//       .not("region", "is", null) // Solo obtener clientes con una región
-//       .distinct("region")
+const getUniqueRegions = cache(async (): Promise<string[]> => {
+  try {
+    const supabase = createServerSupabaseClient()
+    const { data, error } = await supabase
+      .from("clientes")
+      .select("region")
+      .not("region", "is", null)
+      .order("region")
 
-//     if (error) {
-//       console.error("Error al obtener regiones:", error)
-//       return []
-//     }
+    if (error) {
+      console.error("Error al obtener regiones:", error)
+      return []
+    }
 
-//     return data.map((item: { region: string }) => item.region).filter(Boolean) as string[]
-//   } catch (error) {
-//     console.error("Error al obtener regiones:", error)
-//     return []
-//   }
-// })
+    // Obtener regiones únicas usando Set
+    const uniqueRegions = Array.from(new Set(data.map(item => item.region).filter(Boolean)))
+    return uniqueRegions as string[]
+  } catch (error) {
+    console.error("Error al obtener regiones:", error)
+    return []
+  }
+})
 
 export default async function ClientesPage({
   searchParams,
 }: {
-  searchParams: { estado?: string; buscar?: string; region?: string | string[] }
+  searchParams: { [key: string]: string | string[] | undefined }
 }) {
-  const selectedRegions = Array.isArray(searchParams.region) ? searchParams.region : (searchParams.region ? [searchParams.region] : [])
+  const estado = searchParams.estado as string
+  const buscar = searchParams.buscar as string
+  const regiones = searchParams.regiones
+  const page = Number(searchParams.page) || 1
+  const pageSize = 20
 
-  const [clientes] = await Promise.all([
-    getClientes(searchParams.estado, searchParams.buscar, selectedRegions),
-    // getUniqueRegions(), // Ya no se necesita
-  ])
+  const { data: clientes, total } = await getClientes(estado, buscar, regiones, page, pageSize)
+  const uniqueRegions = await getUniqueRegions()
 
-  const uniqueRegions = REGIONES.map(region => region.nombre) // Usar las regiones del archivo
+  const totalPages = Math.ceil(total / pageSize)
 
   return (
     <DashboardLayout>
@@ -140,39 +167,44 @@ export default async function ClientesPage({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Nombre</TableHead>
-                <TableHead>Teléfono</TableHead>
                 <TableHead>IP</TableHead>
-                <TableHead>Plan Asignado</TableHead>
-                <TableHead>Fecha Alta</TableHead>
+                <TableHead>Nombre</TableHead>
                 <TableHead>Región</TableHead>
+                <TableHead>Teléfono</TableHead>
+                <TableHead>Plan</TableHead>
                 <TableHead>Estado</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
+                <TableHead>Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {clientes.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8">
+                  <TableCell colSpan={7} className="text-center py-8">
                     No se encontraron clientes con los filtros seleccionados
                   </TableCell>
                 </TableRow>
               ) : (
                 clientes.map((cliente) => (
                   <TableRow key={cliente.id}>
-                    <TableCell className="font-medium">{cliente.nombre}</TableCell>
-                    <TableCell>{cliente.telefono}</TableCell>
                     <TableCell>{cliente.ip}</TableCell>
-                    <TableCell>{cliente.planes?.nombre || "No asignado"}</TableCell>
-                    <TableCell>{formatDate(cliente.fecha_alta)}</TableCell>
-                    <TableCell>{cliente.region || "N/A"}</TableCell>
+                    <TableCell>{cliente.nombre}</TableCell>
+                    <TableCell>{cliente.region}</TableCell>
+                    <TableCell>{cliente.telefono}</TableCell>
+                    <TableCell>{cliente.planes?.nombre}</TableCell>
                     <TableCell>
-                      <TableStatusSelector clienteId={cliente.id} estadoActual={cliente.estado} />
+                      <TableStatusSelector
+                        clienteId={cliente.id}
+                        estadoActual={cliente.estado}
+                      />
                     </TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" asChild>
-                        <Link href={`/clientes/${cliente.id}`}>Ver Detalles</Link>
-                      </Button>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Button variant="ghost" size="icon" asChild>
+                          <Link href={`/clientes/${cliente.id}`}>
+                            <Eye className="h-4 w-4" />
+                          </Link>
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))
@@ -181,6 +213,13 @@ export default async function ClientesPage({
           </Table>
         </CardContent>
       </Card>
+
+      <ClientesPagination
+        currentPage={page}
+        totalPages={totalPages}
+        totalItems={total}
+        pageSize={pageSize}
+      />
     </DashboardLayout>
   )
 }

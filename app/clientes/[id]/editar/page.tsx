@@ -1,8 +1,7 @@
 "use client"
 
 import type React from "react"
-
-import { useState, useEffect } from "react"
+import { useState, useEffect, use } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
@@ -14,65 +13,128 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
 import { createClientSupabaseClient } from "@/lib/supabase"
-import { ArrowLeft, Loader2, Trash2 } from "lucide-react"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
+import { ArrowLeft, Loader2 } from "lucide-react"
+import { RegionSelect } from "@/components/ui/region-select"
+import dynamic from "next/dynamic"
+import { Checkbox } from "@/components/ui/checkbox"
 
-export default function EditarClientePage({ params }: { params: { id: string } }) {
+const DynamicGoogleMapInput = dynamic(() => import("@/components/ui/google-map-input").then((mod) => mod.GoogleMapInput), {
+  ssr: false,
+  loading: () => <p>Cargando mapa...</p>,
+})
+
+type Plan = {
+  id: string
+  nombre: string
+  precio: number
+}
+
+interface Cliente {
+  id: string
+  nombre: string
+  telefono: string
+  email: string | null
+  direccion: string | null
+  ip: string
+  region: string
+  plan: string
+  latitud: number | null
+  longitud: number | null
+  antena: string | null
+  db: number | null
+  prestada: boolean
+}
+
+interface ClientFormData {
+  nombre: string
+  telefono: string
+  email?: string | null
+  direccion?: string | null
+  ip: string
+  region: string
+  plan: string
+  latitud: number | null
+  longitud: number | null
+  antena?: string | null
+  db?: number | null
+  prestada: boolean
+}
+
+export default function EditarClientePage({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = use(params)
   const router = useRouter()
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
-  const [formData, setFormData] = useState({
+  const [planes, setPlanes] = useState<Plan[]>([])
+  const [formData, setFormData] = useState<ClientFormData>({
     nombre: "",
     telefono: "",
-    email: "",
-    direccion: "",
-    latitud: "",
-    longitud: "",
-    estado: "",
-    notas: "",
+    email: null,
+    direccion: null,
+    ip: "",
+    region: "",
+    plan: "",
+    latitud: null,
+    longitud: null,
+    antena: null,
+    db: null,
+    prestada: true,
   })
 
   useEffect(() => {
-    const fetchCliente = async () => {
+    const fetchData = async () => {
       try {
         const supabase = createClientSupabaseClient()
-        const { data, error } = await supabase.from("clientes").select("*").eq("id", params.id).single()
+        
+        // Obtener planes
+        const { data: planesData, error: planesError } = await supabase
+          .from('planes')
+          .select('id, nombre, precio')
+          .order('nombre')
+          .returns<Plan[]>()
 
-        if (error) {
-          throw error
+        if (planesError) {
+          throw planesError
         }
 
-        if (!data) {
+        setPlanes(planesData || [])
+
+        // Obtener datos del cliente
+        const { data: cliente, error: clienteError } = await supabase
+          .from("clientes")
+          .select("*")
+          .eq("id", resolvedParams.id)
+          .single()
+          .returns<Cliente>()
+
+        if (clienteError) {
+          throw clienteError
+        }
+
+        if (!cliente) {
           throw new Error("Cliente no encontrado")
         }
 
         setFormData({
-          nombre: data.nombre || "",
-          telefono: data.telefono || "",
-          email: data.email || "",
-          direccion: data.direccion || "",
-          latitud: data.latitud ? data.latitud.toString() : "",
-          longitud: data.longitud ? data.longitud.toString() : "",
-          estado: data.estado || "activo",
-          notas: data.notas || "",
+          nombre: cliente.nombre,
+          telefono: cliente.telefono,
+          email: cliente.email,
+          direccion: cliente.direccion,
+          ip: cliente.ip,
+          region: cliente.region,
+          plan: cliente.plan,
+          latitud: cliente.latitud,
+          longitud: cliente.longitud,
+          antena: cliente.antena,
+          db: cliente.db,
+          prestada: cliente.prestada,
         })
       } catch (error: any) {
-        console.error("Error al cargar cliente:", error)
+        console.error("Error al cargar datos:", error)
         toast({
           title: "Error",
-          description: error.message || "No se pudo cargar la información del cliente",
+          description: error.message || "No se pudieron cargar los datos",
           variant: "destructive",
         })
         router.push("/clientes")
@@ -81,16 +143,24 @@ export default function EditarClientePage({ params }: { params: { id: string } }
       }
     }
 
-    fetchCliente()
-  }, [params.id, toast, router])
+    fetchData()
+  }, [resolvedParams.id, toast, router])
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
-  const handleSelectChange = (name: string, value: string) => {
-    setFormData((prev) => ({ ...prev, [name]: value }))
+  const handleRegionChange = (value: string) => {
+    setFormData((prev) => ({ ...prev, region: value }))
+  }
+
+  const handleLocationChange = (lat: number, lng: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      latitud: lat,
+      longitud: lng,
+    }))
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -100,18 +170,41 @@ export default function EditarClientePage({ params }: { params: { id: string } }
     try {
       const supabase = createClientSupabaseClient()
 
-      // Convertir latitud y longitud a números si no están vacíos
-      const latitud = formData.latitud ? Number.parseFloat(formData.latitud) : null
-      const longitud = formData.longitud ? Number.parseFloat(formData.longitud) : null
+      // Validación básica
+      if (
+        !formData.nombre.trim() ||
+        !formData.telefono.trim() ||
+        !formData.ip.trim() ||
+        !formData.region.trim() ||
+        !formData.plan.trim() ||
+        formData.latitud === null ||
+        formData.longitud === null
+      ) {
+        toast({
+          title: "Error de validación",
+          description: "Por favor completa todos los campos requeridos (Nombre, Teléfono, IP, Región, Plan y Ubicación).",
+          variant: "destructive",
+        })
+        return
+      }
 
       const { error } = await supabase
         .from("clientes")
         .update({
-          ...formData,
-          latitud,
-          longitud,
+          nombre: formData.nombre.trim(),
+          telefono: formData.telefono.trim(),
+          email: formData.email?.trim() || null,
+          direccion: formData.direccion?.trim() || null,
+          ip: formData.ip.trim(),
+          region: formData.region.trim(),
+          plan: formData.plan.trim(),
+          latitud: formData.latitud,
+          longitud: formData.longitud,
+          antena: formData.antena || null,
+          db: formData.db !== null ? Number(formData.db) : null,
+          prestada: formData.prestada,
         })
-        .eq("id", params.id)
+        .eq("id", resolvedParams.id)
 
       if (error) {
         throw error
@@ -122,7 +215,7 @@ export default function EditarClientePage({ params }: { params: { id: string } }
         description: "El cliente ha sido actualizado exitosamente",
       })
 
-      router.push(`/clientes/${params.id}`)
+      router.push(`/clientes/${resolvedParams.id}`)
     } catch (error: any) {
       toast({
         title: "Error",
@@ -131,81 +224,6 @@ export default function EditarClientePage({ params }: { params: { id: string } }
       })
     } finally {
       setIsSaving(false)
-    }
-  }
-
-  const handleDelete = async () => {
-    setIsDeleting(true)
-
-    try {
-      const supabase = createClientSupabaseClient()
-
-      // Verificar si el cliente tiene dispositivos asociados
-      const { data: dispositivos, error: dispositivosError } = await supabase
-        .from("dispositivos")
-        .select("id")
-        .eq("cliente_id", params.id)
-        .limit(1)
-
-      if (dispositivosError) {
-        throw dispositivosError
-      }
-
-      if (dispositivos && dispositivos.length > 0) {
-        throw new Error("No se puede eliminar el cliente porque tiene dispositivos asociados")
-      }
-
-      // Verificar si el cliente tiene facturación asociada
-      const { data: facturacion, error: facturacionError } = await supabase
-        .from("facturacion")
-        .select("id")
-        .eq("cliente_id", params.id)
-        .limit(1)
-
-      if (facturacionError) {
-        throw facturacionError
-      }
-
-      if (facturacion && facturacion.length > 0) {
-        throw new Error("No se puede eliminar el cliente porque tiene facturación asociada")
-      }
-
-      // Verificar si el cliente tiene pagos asociados
-      const { data: pagos, error: pagosError } = await supabase
-        .from("pagos")
-        .select("id")
-        .eq("cliente_id", params.id)
-        .limit(1)
-
-      if (pagosError) {
-        throw pagosError
-      }
-
-      if (pagos && pagos.length > 0) {
-        throw new Error("No se puede eliminar el cliente porque tiene pagos asociados")
-      }
-
-      // Eliminar el cliente
-      const { error } = await supabase.from("clientes").delete().eq("id", params.id)
-
-      if (error) {
-        throw error
-      }
-
-      toast({
-        title: "Cliente eliminado",
-        description: "El cliente ha sido eliminado exitosamente",
-      })
-
-      router.push("/clientes")
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Ocurrió un error al eliminar el cliente",
-        variant: "destructive",
-      })
-    } finally {
-      setIsDeleting(false)
     }
   }
 
@@ -223,7 +241,7 @@ export default function EditarClientePage({ params }: { params: { id: string } }
     <DashboardLayout>
       <div className="flex items-center gap-4 mb-6">
         <Button variant="outline" size="icon" asChild>
-          <Link href={`/clientes/${params.id}`}>
+          <Link href={`/clientes/${resolvedParams.id}`}>
             <ArrowLeft className="h-4 w-4" />
             <span className="sr-only">Volver</span>
           </Link>
@@ -231,134 +249,190 @@ export default function EditarClientePage({ params }: { params: { id: string } }
         <h1 className="text-3xl font-bold">Editar Cliente</h1>
       </div>
 
-      <Card>
-        <form onSubmit={handleSubmit}>
-          <CardHeader>
-            <CardTitle>Información del Cliente</CardTitle>
-            <CardDescription>Actualiza los datos del cliente</CardDescription>
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Tarjeta de Información Personal y de Contacto */}
+        <Card className="max-w-2xl mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 transition-colors duration-200">
+          <CardHeader className="p-0 pb-4">
+            <CardTitle className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-0">Información Personal y de Contacto</CardTitle>
+            <CardDescription className="text-sm text-muted-foreground dark:text-gray-400">Detalles básicos del cliente y su información de contacto.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="p-0 space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="nombre">Nombre Completo</Label>
-                <Input id="nombre" name="nombre" value={formData.nombre} onChange={handleChange} required />
+                <Input
+                  id="nombre"
+                  name="nombre"
+                  value={formData.nombre}
+                  onChange={handleChange}
+                  placeholder="Nombre y apellido del cliente"
+                  required
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="telefono">Teléfono</Label>
-                <Input id="telefono" name="telefono" value={formData.telefono} onChange={handleChange} required />
+                <Input
+                  id="telefono"
+                  name="telefono"
+                  type="tel"
+                  value={formData.telefono}
+                  onChange={handleChange}
+                  placeholder="Ej: 5512345678"
+                  required
+                />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input id="email" name="email" type="email" value={formData.email} onChange={handleChange} required />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="estado">Estado</Label>
-                <Select value={formData.estado} onValueChange={(value) => handleSelectChange("estado", value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar estado" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="activo">Activo</SelectItem>
-                    <SelectItem value="moroso">Moroso</SelectItem>
-                    <SelectItem value="suspendido">Suspendido</SelectItem>
-                    <SelectItem value="baja">Baja</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="direccion">Dirección</Label>
-              <Textarea id="direccion" name="direccion" value={formData.direccion} onChange={handleChange} required />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label htmlFor="latitud">Latitud</Label>
+                <Label htmlFor="email">Email (Opcional)</Label>
                 <Input
-                  id="latitud"
-                  name="latitud"
-                  type="number"
-                  step="any"
-                  value={formData.latitud}
+                  id="email"
+                  name="email"
+                  type="email"
+                  value={formData.email || ""}
                   onChange={handleChange}
-                  placeholder="Opcional"
+                  placeholder="ejemplo@correo.com"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="longitud">Longitud</Label>
+                <Label htmlFor="direccion">Dirección (Opcional)</Label>
                 <Input
-                  id="longitud"
-                  name="longitud"
-                  type="number"
-                  step="any"
-                  value={formData.longitud}
+                  id="direccion"
+                  name="direccion"
+                  value={formData.direccion || ""}
                   onChange={handleChange}
-                  placeholder="Opcional"
+                  placeholder="Dirección completa"
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Tarjeta de Información Técnica */}
+        <Card className="max-w-2xl mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 transition-colors duration-200">
+          <CardHeader className="p-0 pb-4">
+            <CardTitle className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-0">Información Técnica</CardTitle>
+            <CardDescription className="text-sm text-muted-foreground dark:text-gray-400">Detalles técnicos y de configuración del cliente.</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0 space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="ip">Dirección IP</Label>
+                <Input
+                  id="ip"
+                  name="ip"
+                  value={formData.ip}
+                  onChange={handleChange}
+                  placeholder="Ej: 192.168.1.100"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="region">Región</Label>
+                <RegionSelect
+                  value={formData.region}
+                  onValueChange={handleRegionChange}
                 />
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="notas">Notas</Label>
-              <Textarea id="notas" name="notas" value={formData.notas} onChange={handleChange} placeholder="Opcional" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="plan">Plan</Label>
+                <Select
+                  name="plan"
+                  value={formData.plan}
+                  onValueChange={(value) => setFormData(prev => ({ ...prev, plan: value }))}
+                  required
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona un plan" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {planes.map((plan) => (
+                      <SelectItem key={plan.id} value={plan.id}>
+                        {plan.nombre} - ${plan.precio}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="antena">Antena (Opcional)</Label>
+                <Input
+                  id="antena"
+                  name="antena"
+                  value={formData.antena || ""}
+                  onChange={handleChange}
+                  placeholder="Modelo de antena"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="db">dB (Opcional)</Label>
+                <Input
+                  id="db"
+                  name="db"
+                  type="number"
+                  value={formData.db || ""}
+                  onChange={handleChange}
+                  placeholder="Nivel de señal"
+                />
+              </div>
+              <div className="flex items-center space-x-2 pt-6">
+                <Checkbox
+                  id="prestada"
+                  checked={formData.prestada}
+                  onCheckedChange={(checked) => 
+                    setFormData(prev => ({ ...prev, prestada: checked as boolean }))
+                  }
+                />
+                <Label htmlFor="prestada">Equipo prestado</Label>
+              </div>
             </div>
           </CardContent>
-          <CardFooter className="flex justify-between">
-            <div className="flex gap-2">
-              <Button variant="outline" asChild>
-                <Link href={`/clientes/${params.id}`}>Cancelar</Link>
-              </Button>
+        </Card>
 
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="destructive" type="button">
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Eliminar
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Esta acción no se puede deshacer. Esto eliminará permanentemente al cliente y todos sus datos
-                      asociados.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={handleDelete}
-                      disabled={isDeleting}
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    >
-                      {isDeleting ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Eliminando...
-                        </>
-                      ) : (
-                        "Eliminar"
-                      )}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+        {/* Tarjeta de Ubicación */}
+        <Card className="max-w-2xl mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 transition-colors duration-200">
+          <CardHeader className="p-0 pb-4">
+            <CardTitle className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-0">Ubicación del Cliente</CardTitle>
+            <CardDescription className="text-sm text-muted-foreground dark:text-gray-400">Selecciona la ubicación exacta del cliente en el mapa.</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="h-[400px] w-full rounded-md border">
+              <DynamicGoogleMapInput
+                onLocationChange={handleLocationChange}
+                initialLat={formData.latitud || undefined}
+                initialLng={formData.longitud || undefined}
+              />
             </div>
+          </CardContent>
+        </Card>
 
-            <Button type="submit" disabled={isSaving}>
-              {isSaving ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Guardando...
-                </>
-              ) : (
-                "Guardar Cambios"
-              )}
-            </Button>
-          </CardFooter>
-        </form>
-      </Card>
+        <div className="max-w-2xl mx-auto flex justify-end gap-4 mt-6">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => router.push(`/clientes/${resolvedParams.id}`)}
+          >
+            Cancelar
+          </Button>
+          <Button type="submit" disabled={isSaving}>
+            {isSaving ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Guardando...
+              </>
+            ) : (
+              "Guardar Cambios"
+            )}
+          </Button>
+        </div>
+      </form>
     </DashboardLayout>
   )
 }
