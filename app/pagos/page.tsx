@@ -10,6 +10,22 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cache } from "react"
 
+const MESES = [
+  "",
+  "Enero",
+  "Febrero",
+  "Marzo",
+  "Abril",
+  "Mayo",
+  "Junio",
+  "Julio",
+  "Agosto",
+  "Septiembre",
+  "Octubre",
+  "Noviembre",
+  "Diciembre",
+];
+
 // Usar cache para evitar múltiples llamadas a la base de datos
 const getPagos = cache(async (metodo?: string, buscar?: string, desde?: string, hasta?: string) => {
   try {
@@ -138,7 +154,7 @@ export default async function PagosPage({
                 <TableHead>Cliente</TableHead>
                 <TableHead>Monto</TableHead>
                 <TableHead>Método</TableHead>
-                <TableHead>Referencia</TableHead>
+                <TableHead>Mes</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
@@ -159,7 +175,7 @@ export default async function PagosPage({
                     </TableCell>
                     <TableCell className="font-medium">{formatCurrency(pago.monto)}</TableCell>
                     <TableCell>{pago.metodo}</TableCell>
-                    <TableCell>{pago.referencia}</TableCell>
+                    <TableCell>{MESES[Number(pago.mes)]}</TableCell>
                     <TableCell className="text-right">
                       <Button variant="ghost" size="sm" asChild>
                         <Link href={`/clientes/${pago.cliente_id}`}>Ver Cliente</Link>

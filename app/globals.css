@@ -2,8 +2,128 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Paleta basada en el logo AlphaNet */
+:root {
+  --color-primary: #00cfff;
+  --color-primary-dark: #009ec3;
+  --color-accent: #3ad6e8;
+  --color-bg: #f7fcff;
+  --color-bg-dark: #e6f7fa;
+  --color-text: #222f3e;
+  --color-muted: #b2becd;
+  --color-white: #fff;
+}
+
 body {
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'Segoe UI', 'Roboto', 'Arial', sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--color-primary-dark);
+  font-family: 'Segoe UI', 'Roboto', 'Arial', sans-serif;
+}
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+a:hover {
+  color: var(--color-primary-dark);
+}
+
+button, .btn, .Button {
+  background: var(--color-primary);
+  color: var(--color-white);
+  border: none;
+  border-radius: 6px;
+  padding: 0.5em 1.2em;
+  font-weight: 600;
+  transition: background 0.2s, color 0.2s;
+  box-shadow: 0 2px 8px 0 rgba(0,207,255,0.08);
+}
+button:hover, .btn:hover, .Button:hover {
+  background: var(--color-primary-dark);
+  color: var(--color-white);
+}
+
+.card, .Card, .shadcn-card, .bg-white {
+  background: var(--color-white);
+  border-radius: 12px;
+  box-shadow: 0 2px 12px 0 rgba(0,207,255,0.07);
+  border: 1px solid var(--color-bg-dark);
+}
+
+input, select, textarea {
+  border: 1px solid var(--color-accent);
+  border-radius: 6px;
+  padding: 0.5em 1em;
+  background: var(--color-bg-dark);
+  color: var(--color-text);
+  transition: border 0.2s;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--color-primary);
+  outline: none;
+}
+
+.table, .Table, table {
+  background: var(--color-white);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 6px 0 rgba(0,207,255,0.05);
+}
+th, td {
+  padding: 0.7em 1em;
+  border-bottom: 1px solid var(--color-bg-dark);
+}
+th {
+  background: var(--color-primary);
+  color: var(--color-white);
+  font-weight: 600;
+}
+tr:last-child td {
+  border-bottom: none;
+}
+
+.badge, .Badge {
+  background: var(--color-accent);
+  color: var(--color-white);
+  border-radius: 8px;
+  padding: 0.2em 0.7em;
+  font-size: 0.95em;
+  font-weight: 500;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  background: var(--color-bg-dark);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-primary);
+  border-radius: 8px;
+}
+
+/* Estilo para resaltar acentos y links importantes */
+.text-primary, .accent {
+  color: var(--color-primary) !important;
+}
+.bg-primary {
+  background: var(--color-primary) !important;
+  color: var(--color-white) !important;
+}
+
+/* Ajustes para formularios y cards */
+label {
+  color: var(--color-primary-dark);
+  font-weight: 500;
+}
+
+/* Sombra sutil para modales y overlays */
+.modal, .Dialog, .shadcn-dialog {
+  box-shadow: 0 4px 32px 0 rgba(0,207,255,0.13);
 }
 
 @layer utilities {

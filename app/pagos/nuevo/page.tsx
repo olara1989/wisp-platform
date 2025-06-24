@@ -17,6 +17,7 @@ import { createClientSupabaseClient } from "@/lib/supabase"
 import { reactivarCliente } from "@/lib/mikrotik"
 import { formatCurrency } from "@/lib/utils"
 import { ArrowLeft, Loader2 } from "lucide-react"
+import { Alert } from "@/components/ui/alert"
 
 // Definir tipos para cliente y facturación
 interface Cliente {
@@ -78,6 +79,9 @@ export default function NuevoPagoPage() {
     anio: anioActual.toString(),
   })
 
+  const [puedeRegistrar, setPuedeRegistrar] = useState(true)
+  const [alertaPago, setAlertaPago] = useState("")
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -106,35 +110,22 @@ export default function NuevoPagoPage() {
       const supabase = createClientSupabaseClient()
       const { data: cliente } = await supabase.from("clientes").select("*").eq("id", id).single()
       setClienteSeleccionado(cliente as Cliente)
-      // Obtener facturación actual
-      const { data: facturacionData } = await supabase
-        .from("facturacion")
-        .select(`*, planes:plan_id (id, nombre, precio)`)
-        .eq("cliente_id", id)
-        .order("periodo_inicio", { ascending: false })
-        .limit(1)
-        .single()
-      // Validar que planes sea un objeto y tenga precio
-      let planPrecio = ""
-      let planNombre = ""
-      let planOk = false
-      if (
-        facturacionData &&
-        typeof facturacionData === 'object' &&
-        facturacionData.planes &&
-        typeof facturacionData.planes === 'object' &&
-        'precio' in facturacionData.planes &&
-        typeof facturacionData.planes.precio === 'number'
-      ) {
-        planPrecio = facturacionData.planes.precio.toString()
-        planNombre = facturacionData.planes.nombre
-        planOk = true
-        setFormData((prev) => ({ ...prev, monto: planPrecio }))
-        setTimeout(() => {
-          registrarBtnRef.current?.focus()
-        }, 100)
+      // Buscar el plan asignado al cliente
+      if (cliente && cliente.plan) {
+        const { data: plan } = await supabase.from("planes").select("precio, nombre, id").eq("id", cliente.plan).single()
+        if (plan && typeof (plan as { precio?: number }).precio === 'number') {
+          setFormData((prev) => ({ ...prev, monto: ((plan as { precio: number }).precio).toString() }))
+          setTimeout(() => {
+            registrarBtnRef.current?.focus()
+          }, 100)
+        } else {
+          // Si el plan no tiene precio, limpiar el campo monto
+          setFormData((prev) => ({ ...prev, monto: "" }))
+        }
+      } else {
+        // Si el cliente no tiene plan, limpiar el campo monto
+        setFormData((prev) => ({ ...prev, monto: "" }))
       }
-      setFacturacion(facturacionData && facturacionData.id ? facturacionData as Facturacion : null)
       // Obtener dispositivo y router
       const { data: dispositivoData } = await supabase
         .from("dispositivos")
@@ -153,7 +144,7 @@ export default function NuevoPagoPage() {
   const handleClienteInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     setClienteInput(e.target.value)
     setShowSuggestions(true)
-    setFormData((prev) => ({ ...prev, cliente_id: "" }))
+    setFormData((prev) => ({ ...prev, cliente_id: "", monto: "" })) // Limpiar monto al limpiar cliente
     setClienteSeleccionado(null)
     setFacturacion(null)
   }
@@ -162,7 +153,38 @@ export default function NuevoPagoPage() {
     setClienteInput(cliente.nombre)
     setShowSuggestions(false)
     setFormData((prev) => ({ ...prev, cliente_id: String(cliente.id) }))
+    setAlertaPago("")
+    setPuedeRegistrar(true)
     await fetchClienteData(cliente.id)
+
+    // Calcular mes y año anterior
+    let mesAnterior = mesActual - 1
+    let anioAnterior = anioActual
+    if (mesActual === 1) {
+      mesAnterior = 12
+      anioAnterior = anioActual - 1
+    }
+    // Verificar si existe pago del mes anterior
+    try {
+      const supabase = createClientSupabaseClient()
+      const { data: pagosAnteriores, error } = await supabase
+        .from("pagos")
+        .select("id")
+        .eq("cliente_id", cliente.id)
+        .eq("mes", mesAnterior)
+        .eq("anio", anioAnterior)
+      if (error) throw error
+      if (!pagosAnteriores || pagosAnteriores.length === 0) {
+        setAlertaPago("El cliente no tiene pago registrado del mes anterior. Por favor, verifica la situación antes de registrar un nuevo pago.")
+        setPuedeRegistrar(false)
+      } else {
+        setAlertaPago("")
+        setPuedeRegistrar(true)
+      }
+    } catch (err) {
+      setAlertaPago("No se pudo verificar el pago del mes anterior. Intenta nuevamente.")
+      setPuedeRegistrar(false)
+    }
   }
 
   const handleClienteInputKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -195,11 +217,23 @@ export default function NuevoPagoPage() {
     try {
       const supabase = createClientSupabaseClient()
 
+      // Corregir la fecha para evitar desfase por zona horaria
+      let fechaPago = formData.fecha_pago
+      if (fechaPago) {
+        // Si la fecha viene como string (YYYY-MM-DD), usarla tal cual
+        // pero si por alguna razón viene como Date, formatear a YYYY-MM-DD
+        if (typeof fechaPago !== "string") {
+          const d = new Date(fechaPago)
+          fechaPago = d.toISOString().split("T")[0]
+        }
+      }
+
       // Registrar el pago, incluyendo mes y anio
       const { data: pago, error: pagoError } = await supabase
         .from("pagos")
         .insert({
           ...formData,
+          fecha_pago: fechaPago, // Usar la fecha corregida
           monto: Number.parseFloat(formData.monto),
           mes: formData.mes,
           anio: formData.anio,
@@ -279,6 +313,11 @@ export default function NuevoPagoPage() {
             <CardDescription>Registra un nuevo pago para el cliente</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            {alertaPago && (
+              <Alert variant="destructive">
+                {alertaPago}
+              </Alert>
+            )}
             <div className="space-y-2 relative">
               <Label htmlFor="cliente_id">Cliente</Label>
               <Input
@@ -428,7 +467,7 @@ export default function NuevoPagoPage() {
             <Button variant="outline" asChild>
               <Link href={clienteId ? `/clientes/${clienteId}` : "/pagos"}>Cancelar</Link>
             </Button>
-            <Button ref={registrarBtnRef} type="submit" disabled={isSaving || !formData.cliente_id}>
+            <Button ref={registrarBtnRef} type="submit" disabled={isSaving || !formData.cliente_id || !puedeRegistrar}>
               {isSaving ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

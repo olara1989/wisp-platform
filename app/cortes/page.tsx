@@ -8,40 +8,89 @@ import { createServerSupabaseClient } from "@/lib/supabase"
 import { formatCurrency, formatDate, getEstadoPagoColor } from "@/lib/utils"
 import { AlertTriangle } from "lucide-react"
 
-async function getClientesMorosos() {
+function getMesYAnoParaVerificarFromDate(date: Date) {
+  const dia = date.getDate()
+  let mes = date.getMonth() + 1 // 1-12
+  let anio = date.getFullYear()
+  if (dia < 5) {
+    mes = mes - 1
+    if (mes === 0) {
+      mes = 12
+      anio = anio - 1
+    }
+  }
+  return { mes, anio }
+}
+
+function getMesesPendientes(
+  clienteId: string,
+  primerMes: number,
+  primerAnio: number,
+  mesActual: number,
+  anioActual: number,
+  pagos: { mes: number | string; anio: number | string }[]
+) {
+  const pendientes: string[] = []
+  let m = primerMes
+  let a = primerAnio
+  while (a < anioActual || (a === anioActual && m <= mesActual)) {
+    const tienePago = pagos.some((p) => Number(p.mes) === m && Number(p.anio) === a)
+    if (!tienePago) {
+      pendientes.push(`${m.toString().padStart(2, '0')}/${a}`)
+    }
+    m++
+    if (m > 12) {
+      m = 1
+      a++
+    }
+  }
+  return pendientes
+}
+
+async function getClientesSinPagoDelMes(mesActual: number, anioActual: number) {
   const supabase = createServerSupabaseClient()
 
-  // Obtener clientes con facturas vencidas
-  const { data, error } = await supabase
-    .from("facturacion")
-    .select(`
-      *,
-      clientes:cliente_id (
-        id,
-        nombre,
-        telefono,
-        email,
-        estado
-      ),
-      planes:plan_id (
-        id,
-        nombre,
-        precio
-      )
-    `)
-    .or("estado_pago.eq.vencido,estado_pago.eq.pendiente")
-    .order("fecha_corte")
+  // Obtener todos los clientes activos
+  const { data: clientes, error: errorClientes } = await supabase
+    .from("clientes")
+    .select("id, nombre, telefono, email, estado, plan, fecha_alta")
+    .eq("estado", "activo")
 
-  if (error) {
-    console.error("Error al obtener clientes morosos:", error)
-    return []
+  if (errorClientes || !clientes) return []
+
+  // Para cada cliente, buscar todos sus pagos
+  const clientesConPendientes = []
+  for (const cliente of clientes) {
+    const { data: pagos, error: errorPagos } = await supabase
+      .from("pagos")
+      .select("mes, anio")
+      .eq("cliente_id", cliente.id)
+    if (errorPagos) continue
+    // Calcular desde el primer mes sin pago hasta el mes actual
+    const fechaAltaStr = typeof cliente.fecha_alta === 'string' ? cliente.fecha_alta : ''
+    const fechaAlta = new Date(fechaAltaStr)
+    const primerMes = fechaAlta.getMonth() + 1
+    const primerAnio = fechaAlta.getFullYear()
+    const mesesPendientes = getMesesPendientes(
+      String(cliente.id),
+      primerMes,
+      primerAnio,
+      mesActual,
+      anioActual,
+      (pagos as { mes: number | string; anio: number | string }[]) || []
+    )
+    if (mesesPendientes.length > 0) {
+      clientesConPendientes.push({ ...cliente, mesesPendientes })
+    }
   }
-
-  return data || []
+  return clientesConPendientes
 }
 
 export default async function CortesPage() {
-  const clientesMorosos = await getClientesMorosos()
+  // Calcular la fecha de referencia SOLO en el servidor
+  const fechaReferencia = new Date()
+  const { mes: mesActual, anio: anioActual } = getMesYAnoParaVerificarFromDate(fechaReferencia)
+  const clientesMorosos = await getClientesSinPagoDelMes(mesActual, anioActual)
 
   return (
     <DashboardLayout>
@@ -56,54 +105,54 @@ export default async function CortesPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-yellow-500" />
-            Clientes con Pagos Pendientes o Vencidos
+            Clientes sin pago del mes correspondiente
           </CardTitle>
-          <CardDescription>Lista de clientes que requieren atención por pagos pendientes o vencidos</CardDescription>
+          <CardDescription>Lista de clientes que no han registrado pago del mes actual o anterior según la fecha</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Cliente</TableHead>
-                <TableHead>Plan</TableHead>
-                <TableHead>Monto</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead>Fecha Corte</TableHead>
+                <TableHead>Teléfono</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Meses pendientes</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {clientesMorosos.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8">
-                    No hay clientes con pagos pendientes o vencidos
+                  <TableCell colSpan={5} className="text-center py-8">
+                    No hay clientes sin pago del mes correspondiente
                   </TableCell>
                 </TableRow>
               ) : (
-                clientesMorosos.map((factura) => (
-                  <TableRow key={factura.id}>
-                    <TableCell className="font-medium">
-                      <div>{factura.clientes.nombre}</div>
-                      <div className="text-xs text-muted-foreground">{factura.clientes.telefono}</div>
-                    </TableCell>
-                    <TableCell>{factura.planes.nombre}</TableCell>
-                    <TableCell>{formatCurrency(factura.planes.precio)}</TableCell>
-                    <TableCell>
-                      <Badge className={getEstadoPagoColor(factura.estado_pago)}>{factura.estado_pago}</Badge>
-                    </TableCell>
-                    <TableCell>{formatDate(factura.fecha_corte)}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button variant="outline" size="sm" asChild>
-                          <Link href={`/pagos/nuevo?cliente=${factura.cliente_id}`}>Registrar Pago</Link>
-                        </Button>
-                        <Button variant="destructive" size="sm" asChild>
-                          <Link href={`/cortes/suspender?factura=${factura.id}`}>Suspender</Link>
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
+                clientesMorosos.map((cliente) => {
+                  const id = typeof cliente.id === 'string' ? cliente.id : String(cliente.id ?? '')
+                  const nombre = typeof cliente.nombre === 'string' ? cliente.nombre : '-'
+                  const telefono = typeof cliente.telefono === 'string' ? cliente.telefono : '-'
+                  const email = typeof cliente.email === 'string' ? cliente.email : '-'
+                  const mesesPendientes = Array.isArray(cliente.mesesPendientes) ? cliente.mesesPendientes : []
+                  return (
+                    <TableRow key={id}>
+                      <TableCell className="font-medium">{nombre}</TableCell>
+                      <TableCell>{telefono}</TableCell>
+                      <TableCell>{email}</TableCell>
+                      <TableCell>{mesesPendientes.join(", ")}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button variant="outline" size="sm" asChild>
+                            <Link href={`/pagos/nuevo?cliente=${id}`}>Registrar Pago</Link>
+                          </Button>
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link href={`/public/pagos/${id}`} target="_blank" rel="noopener noreferrer">Ver Historial</Link>
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
               )}
             </TableBody>
           </Table>

@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { createServerSupabaseClient } from "@/lib/supabase"
 import { formatDate, getEstadoColor } from "@/lib/utils"
-import { Plus, Search, Filter, Eye, Pencil } from "lucide-react"
+import { Plus, Search, Filter, Eye, Pencil, Clock } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cache } from "react"
@@ -202,6 +202,11 @@ export default async function ClientesPage({
                         <Button variant="ghost" size="icon" asChild>
                           <Link href={`/clientes/${cliente.id}`}>
                             <Eye className="h-4 w-4" />
+                          </Link>
+                        </Button>
+                        <Button variant="ghost" size="icon" asChild>
+                          <Link href={`/public/pagos/${cliente.id}`} target="_blank" rel="noopener noreferrer">
+                            <Clock className="h-4 w-4" />
                           </Link>
                         </Button>
                       </div>

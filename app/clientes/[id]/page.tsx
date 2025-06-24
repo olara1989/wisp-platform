@@ -80,6 +80,7 @@ interface Pago {
   metodo: string
   referencia: string | null
   notas: string | null
+  mes: string | number
 }
 
 // Importación dinámica del componente de mapa para evitar problemas de SSR
@@ -87,6 +88,22 @@ interface Pago {
 //   ssr: false,
 //   loading: () => <p>Cargando mapa...</p>,
 // })
+
+const MESES = [
+  "",
+  "Enero",
+  "Febrero",
+  "Marzo",
+  "Abril",
+  "Mayo",
+  "Junio",
+  "Julio",
+  "Agosto",
+  "Septiembre",
+  "Octubre",
+  "Noviembre",
+  "Diciembre",
+];
 
 async function getClienteData(id: string) {
   const supabase = createServerSupabaseClient()
@@ -409,7 +426,7 @@ export default async function ClienteDetallePage({
                         <TableHead>Fecha</TableHead>
                         <TableHead>Monto</TableHead>
                         <TableHead>Método</TableHead>
-                        <TableHead>Referencia</TableHead>
+                        <TableHead>Mes</TableHead>
                         <TableHead>Notas</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -419,7 +436,7 @@ export default async function ClienteDetallePage({
                           <TableCell>{formatDate(pago.fecha_pago)}</TableCell>
                           <TableCell>{formatCurrency(pago.monto)}</TableCell>
                           <TableCell>{pago.metodo}</TableCell>
-                          <TableCell>{pago.referencia}</TableCell>
+                          <TableCell>{MESES[Number(pago.mes)]}</TableCell>
                           <TableCell>{pago.notas}</TableCell>
                         </TableRow>
                       ))}
