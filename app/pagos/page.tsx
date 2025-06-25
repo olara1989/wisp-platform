@@ -27,7 +27,7 @@ const MESES = [
 ];
 
 // Usar cache para evitar múltiples llamadas a la base de datos
-const getPagos = cache(async (metodo?: string, buscar?: string, desde?: string, hasta?: string) => {
+const getPagos = cache(async (metodo?: string, buscar?: string, desde?: string, hasta?: string, page: number = 1, pageSize: number = 20) => {
   try {
     const supabase = createServerSupabaseClient()
 
@@ -64,31 +64,52 @@ const getPagos = cache(async (metodo?: string, buscar?: string, desde?: string, 
       query = query.or(`referencia.ilike.%${buscar}%,notas.ilike.%${buscar}%`)
     }
 
+    // Obtener el total de pagos para paginación
+    const countQuery = supabase
+      .from("pagos")
+      .select("id", { count: "exact", head: true })
+    if (metodo && metodo !== "todos") countQuery.eq("metodo", metodo)
+    if (desde) countQuery.gte("fecha_pago", desde)
+    if (hasta) countQuery.lte("fecha_pago", hasta)
+    if (buscar) countQuery.or(`referencia.ilike.%${buscar}%,notas.ilike.%${buscar}%`)
+    const { count } = await countQuery
+
+    // Paginación
+    query = query.range((page - 1) * pageSize, page * pageSize - 1)
+
     const { data, error } = await query
 
     if (error) {
       console.error("Error al obtener pagos:", error)
-      return []
+      return { data: [], total: 0 }
     }
-
-    return data || []
+    return { data: data || [], total: count || 0 }
   } catch (error) {
     console.error("Error al obtener pagos:", error)
-    return []
+    return { data: [], total: 0 }
   }
 })
 
 export default async function PagosPage({
   searchParams,
 }: {
-  searchParams: { metodo?: string; buscar?: string; desde?: string; hasta?: string }
+  searchParams: { metodo?: string; buscar?: string; desde?: string; hasta?: string; page?: string }
 }) {
-  const pagos = await getPagos(searchParams.metodo, searchParams.buscar, searchParams.desde, searchParams.hasta)
+  const page = Number(searchParams.page) || 1
+  const pageSize = 20
+  const { data: pagos, total } = await getPagos(searchParams.metodo, searchParams.buscar, searchParams.desde, searchParams.hasta, page, pageSize)
+  const totalPages = Math.ceil(total / pageSize)
+  // Calcular la suma total de los montos filtrados
+  const { data: allPagos } = await getPagos(searchParams.metodo, searchParams.buscar, searchParams.desde, searchParams.hasta, 1, 10000)
+  const totalMonto = (allPagos || []).reduce((sum: number, pago: any) => sum + (Number(pago.monto) || 0), 0)
 
   return (
     <DashboardLayout>
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Pagos</h1>
+        <div className="flex items-center gap-4">
+          <h1 className="text-3xl font-bold">Pagos</h1>
+          <span className="text-lg font-semibold text-[#009EC3]">Total: {formatCurrency(totalMonto)}</span>
+        </div>
         <Button asChild>
           <Link href="/pagos/nuevo">
             <Plus className="mr-2 h-4 w-4" /> Nuevo Pago
@@ -166,7 +187,7 @@ export default async function PagosPage({
                   </TableCell>
                 </TableRow>
               ) : (
-                pagos.map((pago) => (
+                pagos.map((pago: any) => (
                   <TableRow key={pago.id}>
                     <TableCell>{formatDate(pago.fecha_pago)}</TableCell>
                     <TableCell>
@@ -188,6 +209,25 @@ export default async function PagosPage({
           </Table>
         </CardContent>
       </Card>
+
+      {/* Paginación */}
+      <div className="flex justify-center my-6">
+        <nav className="inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
+          {Array.from({ length: totalPages }, (_, i) => (
+            <Link
+              key={i + 1}
+              href={{
+                pathname: "/pagos",
+                query: { ...searchParams, page: i + 1 },
+              }}
+              className={`px-3 py-1 border border-gray-300 text-sm font-medium ${page === i + 1 ? "bg-primary text-white" : "bg-white text-gray-700"}`}
+              aria-current={page === i + 1 ? "page" : undefined}
+            >
+              {i + 1}
+            </Link>
+          ))}
+        </nav>
+      </div>
     </DashboardLayout>
   )
 }

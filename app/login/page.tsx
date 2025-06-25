@@ -94,16 +94,6 @@ export default function LoginPage() {
           </form>
         </Card>
 
-        <Alert>
-          <Info className="h-4 w-4" />
-          <AlertDescription>
-            <strong>Credenciales de prueba:</strong>
-            <br />
-            Email: admin@wisp.com
-            <br />
-            Contraseña: admin123
-          </AlertDescription>
-        </Alert>
       </div>
     </div>
   )

@@ -258,7 +258,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: {
         <form className="flex gap-4 mb-6 items-end" method="get">
           <div>
             <label className="block text-sm mb-1">Mes</label>
-            <select name="mes" defaultValue={String(mesParam)} className="border rounded px-2 py-2 text-[#737373]">
+            <select name="mes" defaultValue={String(mesParam)} className="border rounded px-2 py-2 text-[#687373]">
               {MESES.map((mes, idx) => (
                 <option key={mes} value={idx + 1}>{mes}</option>
               ))}
@@ -266,7 +266,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: {
           </div>
           <div>
             <label className="block text-sm mb-1">Año</label>
-            <select name="anio" defaultValue={String(anioParam)} className="border rounded px-2 py-2 text-[#737373]">
+            <select name="anio" defaultValue={String(anioParam)} className="border rounded px-2 py-2 text-[#687373]">
               {getAnios().map((anio) => (
                 <option key={anio} value={anio}>{anio}</option>
               ))}
@@ -274,7 +274,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: {
           </div>
           <div>
             <label className="block text-sm mb-1">Región</label>
-            <select name="region" defaultValue={regionFiltro} className="border rounded px-2 py-2 text-[#737373]">
+            <select name="region" defaultValue={regionFiltro} className="border rounded px-2 py-2 text-[#687373]">
               <option value="">Todas las regiones</option>
               {REGIONES.map((region) => (
                 <option key={region.id} value={region.id}>

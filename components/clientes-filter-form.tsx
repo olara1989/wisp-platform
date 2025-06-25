@@ -70,13 +70,12 @@ export function ClientesFilterForm({ uniqueRegions }: ClientesFilterFormProps) {
           value={estado} 
           onValueChange={handleEstadoChange}
         >
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Estado">
-              {estado !== "todos" && (
-                <Badge className={getEstadoColor(estado) + " px-2 py-0.5 text-xs font-medium rounded"}>
-                  {estado}
-                </Badge>
-              )}
+          <SelectTrigger className="w-[180px] text-[#687373]">
+            <SelectValue placeholder="Estado" className="text-[#687373]">
+              {estado !== "todos"
+                ? <Badge className={getEstadoColor(estado) + " px-2 py-0.5 text-xs font-medium rounded"}>{estado}</Badge>
+                : "Estado"
+              }
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -94,7 +93,7 @@ export function ClientesFilterForm({ uniqueRegions }: ClientesFilterFormProps) {
 
       <div className="flex items-center gap-2">
         <Filter className="h-4 w-4 text-muted-foreground" />
-        <MultiSelectRegionFilter options={uniqueRegions} />
+        <MultiSelectRegionFilter options={uniqueRegions} className="text-[#687373]" />
       </div>
 
       <div className="flex-1 flex items-center gap-2">

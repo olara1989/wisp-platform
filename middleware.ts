@@ -13,7 +13,6 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/api") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
-    pathname === "/setup" ||
     pathname === "/test-connection" ||
     pathname === "/debug"
   ) {
@@ -21,10 +20,10 @@ export async function middleware(req: NextRequest) {
     return res
   }
 
-  // Si es la ruta raíz, redirigir a setup
+  // Si es la ruta raíz, redirigir a login
   if (pathname === "/") {
-    console.log(`[MIDDLEWARE] Redirecting root to setup`)
-    return NextResponse.redirect(new URL("/setup", req.url))
+    console.log(`[MIDDLEWARE] Redirecting root to login`)
+    return NextResponse.redirect(new URL("/login", req.url))
   }
 
   // Si es login, permitir acceso

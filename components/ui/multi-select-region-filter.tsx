@@ -24,11 +24,13 @@ import { Badge } from "@/components/ui/badge"
 interface MultiSelectRegionFilterProps {
   options: string[]
   placeholder?: string
+  className?: string
 }
 
 export function MultiSelectRegionFilter({
   options,
   placeholder = "Seleccionar región(es)...",
+  className = "",
 }: MultiSelectRegionFilterProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -76,7 +78,7 @@ export function MultiSelectRegionFilter({
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="w-full justify-between"
+          className={cn("w-full justify-between", className)}
         >
           <div className="flex flex-wrap items-center">
             {displayValue || placeholder}
