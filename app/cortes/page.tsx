@@ -7,6 +7,12 @@ import { Badge } from "@/components/ui/badge"
 import { createServerSupabaseClient } from "@/lib/supabase"
 import { formatCurrency, formatDate, getEstadoPagoColor } from "@/lib/utils"
 import { AlertTriangle } from "lucide-react"
+import { CreditCard, History, MessageCircle } from "lucide-react"
+import { useMemo } from "react"
+import { REGIONES } from "@/lib/types/regiones"
+import { RegionSelect } from "@/components/ui/region-select"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { redirect } from "next/navigation"
 
 function getMesYAnoParaVerificarFromDate(date: Date) {
   const dia = date.getDate()
@@ -53,7 +59,7 @@ async function getClientesSinPagoDelMes(mesActual: number, anioActual: number) {
   // Obtener todos los clientes activos
   const { data: clientes, error: errorClientes } = await supabase
     .from("clientes")
-    .select("id, nombre, telefono, email, estado, plan, fecha_alta")
+    .select("id, nombre, telefono, email, estado, plan, fecha_alta, region")
     .eq("estado", "activo")
 
   if (errorClientes || !clientes) return []
@@ -86,11 +92,25 @@ async function getClientesSinPagoDelMes(mesActual: number, anioActual: number) {
   return clientesConPendientes
 }
 
-export default async function CortesPage() {
-  // Calcular la fecha de referencia SOLO en el servidor
-  const fechaReferencia = new Date()
+export default async function CortesPage({ searchParams }: { searchParams?: { [key: string]: string } }) {
+  // Filtros desde la URL
+  const regionFiltro = searchParams?.region || ""
+  const mesesFiltro = Number(searchParams?.meses) || 0
+
+  // Obtén la fecha de referencia como string ISO (solo en el servidor)
+  const fechaReferenciaISO = new Date().toISOString()
+  const fechaReferencia = new Date(fechaReferenciaISO)
   const { mes: mesActual, anio: anioActual } = getMesYAnoParaVerificarFromDate(fechaReferencia)
-  const clientesMorosos = await getClientesSinPagoDelMes(mesActual, anioActual)
+  let clientesMorosos = await getClientesSinPagoDelMes(mesActual, anioActual)
+
+  // Filtrar por región si aplica
+  if (regionFiltro) {
+    clientesMorosos = clientesMorosos.filter((c: any) => c.region === regionFiltro)
+  }
+  // Filtrar por número de meses pendientes si aplica
+  if (mesesFiltro > 0) {
+    clientesMorosos = clientesMorosos.filter((c: any) => Array.isArray(c.mesesPendientes) && c.mesesPendientes.length === mesesFiltro)
+  }
 
   return (
     <DashboardLayout>
@@ -100,6 +120,39 @@ export default async function CortesPage() {
           {clientesMorosos.length} clientes
         </Badge>
       </div>
+
+      {/* Filtros */}
+      <form className="flex flex-wrap gap-4 mb-6 items-end" method="get">
+        <div>
+          <label className="block text-sm mb-1">Región</label>
+          <select
+            name="region"
+            defaultValue={regionFiltro}
+            className="w-[180px] border rounded px-2 py-2 text-[#737373]"
+          >
+            <option value="">Todas las regiones</option>
+            {REGIONES.map((region) => (
+              <option key={region.id} value={region.id}>
+                {region.nombre}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm mb-1">Meses pendientes</label>
+          <select
+            name="meses"
+            defaultValue={mesesFiltro ? String(mesesFiltro) : ""}
+            className="w-[140px] border rounded px-2 py-2 text-[#737373]"
+          >
+            <option value="">Todos</option>
+            {[1,2,3,4,5,6].map((n) => (
+              <option key={n} value={n}>{n} mes{n > 1 ? "es" : ""}</option>
+            ))}
+          </select>
+        </div>
+        <Button type="submit" className="h-10">Aplicar filtros</Button>
+      </form>
 
       <Card>
         <CardHeader>
@@ -134,6 +187,11 @@ export default async function CortesPage() {
                   const telefono = typeof cliente.telefono === 'string' ? cliente.telefono : '-'
                   const email = typeof cliente.email === 'string' ? cliente.email : '-'
                   const mesesPendientes = Array.isArray(cliente.mesesPendientes) ? cliente.mesesPendientes : []
+                  const linkHistorial = `${process.env.NEXT_PUBLIC_BASE_URL || ''}/public/pagos/${id}`
+                  const mensaje = encodeURIComponent(
+                    `Hola ${nombre}, te recordamos que tienes pagos pendientes correspondientes a los meses: ${mesesPendientes.join(", ")}.\n\nPor favor regulariza tu pago antes del día 5 de cada mes para evitar cortes en el servicio y multas por pago tardío.\n\nPuedes consultar tu historial de pagos aquí: ${linkHistorial}\n\nPuedes comunicarte con nosotros para más información.`
+                  )
+                  const whatsappUrl = telefono && telefono !== '-' ? `https://wa.me/${telefono.replace(/[^\d]/g, '')}?text=${mensaje}` : null
                   return (
                     <TableRow key={id}>
                       <TableCell className="font-medium">{nombre}</TableCell>
@@ -143,11 +201,22 @@ export default async function CortesPage() {
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
                           <Button variant="outline" size="sm" asChild>
-                            <Link href={`/pagos/nuevo?cliente=${id}`}>Registrar Pago</Link>
+                            <Link href={`/pagos/nuevo?cliente=${id}`} title="Registrar Pago">
+                              <CreditCard className="w-4 h-4" />
+                            </Link>
                           </Button>
                           <Button variant="ghost" size="sm" asChild>
-                            <Link href={`/public/pagos/${id}`} target="_blank" rel="noopener noreferrer">Ver Historial</Link>
+                            <Link href={`/public/pagos/${id}`} target="_blank" rel="noopener noreferrer" title="Ver Historial">
+                              <History className="w-4 h-4" />
+                            </Link>
                           </Button>
+                          {whatsappUrl && (
+                            <Button variant="secondary" size="sm" asChild>
+                              <a href={whatsappUrl} target="_blank" rel="noopener noreferrer" title="Enviar WhatsApp">
+                                <MessageCircle className="w-4 h-4" />
+                              </a>
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

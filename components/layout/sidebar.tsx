@@ -92,11 +92,8 @@ export const Sidebar = memo(function Sidebar({ className }: SidebarProps) {
     [pathname, userRole],
   )
 
-  // Filtrar las rutas según el rol del usuario
-  const filteredRoutes = useMemo(
-    () => routes.filter((route) => route.roles.includes(userRole || "")),
-    [routes, userRole],
-  )
+  // Mostrar todas las rutas para todos los roles temporalmente para depuración
+  const filteredRoutes = routes;
 
   return (
     <div className={cn("flex flex-col h-full", className)}>
