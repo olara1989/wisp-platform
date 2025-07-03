@@ -213,19 +213,29 @@ export default async function PagosPage({
       {/* Paginación */}
       <div className="flex justify-center my-6">
         <nav className="inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
-          {Array.from({ length: totalPages }, (_, i) => (
+          {Array.from({ length: totalPages }, (_, i) => {
+            // Crear un objeto plano para query
+            const query = {
+              metodo: searchParams.metodo || undefined,
+              buscar: searchParams.buscar || undefined,
+              desde: searchParams.desde || undefined,
+              hasta: searchParams.hasta || undefined,
+              page: i + 1,
+            }
+            return (
             <Link
               key={i + 1}
               href={{
                 pathname: "/pagos",
-                query: { ...searchParams, page: i + 1 },
+                  query,
               }}
               className={`px-3 py-1 border border-gray-300 text-sm font-medium ${page === i + 1 ? "bg-primary text-white" : "bg-white text-gray-700"}`}
               aria-current={page === i + 1 ? "page" : undefined}
             >
               {i + 1}
             </Link>
-          ))}
+            )
+          })}
         </nav>
       </div>
     </DashboardLayout>

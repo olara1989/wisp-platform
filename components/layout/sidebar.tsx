@@ -92,8 +92,8 @@ export const Sidebar = memo(function Sidebar({ className }: SidebarProps) {
     [pathname, userRole],
   )
 
-  // Mostrar todas las rutas para todos los roles temporalmente para depuración
-  const filteredRoutes = routes;
+  // Filtrar rutas según el rol del usuario
+  const filteredRoutes = userRole ? routes.filter(route => route.roles.includes(userRole)) : [];
 
   return (
     <div className={cn("flex flex-col h-full", className)}>
@@ -121,6 +121,25 @@ export const Sidebar = memo(function Sidebar({ className }: SidebarProps) {
                   </Link>
                 </Button>
               ))}
+              {/* Enlace a Usuarios solo para admin */}
+              {userRole === "admin" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-2 rounded w-full justify-start transition-colors duration-200",
+                    pathname === "/usuarios"
+                      ? "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white"
+                      : "text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  )}
+                  asChild
+                >
+                  <Link href="/usuarios">
+                    <Users className="mr-2 h-4 w-4 text-gray-500 dark:text-gray-400 inline" />
+                    Usuarios
+                  </Link>
+                </Button>
+              )}
             </ScrollArea>
           </div>
         </div>

@@ -7,6 +7,7 @@ import { cache } from "react"
 import { redirect } from "next/navigation"
 import { DashboardCharts, DashboardClientesPorRegionChart, DashboardClientesPorAntenaChart } from "@/components/DashboardCharts"
 import { REGIONES } from "@/lib/types/regiones"
+import type { ReadonlyURLSearchParams } from "next/navigation"
 
 const MESES = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
@@ -68,27 +69,27 @@ async function getClientesMorososPorMes(mes: number, anio: number) {
     .select("id, nombre, telefono, email, estado, plan, fecha_alta, region")
     .eq("estado", "activo")
   if (errorClientes || !clientes) return []
-  // Para cada cliente, buscar si tiene pago del mes/año
-  const morosos = []
-  for (const cliente of clientes) {
-    const { data: pagos, error: errorPagos } = await supabase
-      .from("pagos")
-      .select("mes, anio")
-      .eq("cliente_id", cliente.id)
-      .eq("mes", mes)
-      .eq("anio", anio)
-    if (errorPagos || !pagos || pagos.length === 0) {
-      morosos.push(cliente)
-    }
-  }
-  return morosos
+
+  // Obtener todos los pagos de ese mes/año
+  const { data: pagos, error: errorPagos } = await supabase
+    .from("pagos")
+    .select("cliente_id")
+    .eq("mes", mes)
+    .eq("anio", anio)
+  if (errorPagos || !pagos) return clientes // Si hay error, asume todos morosos
+
+  const clientesQuePagaron = new Set(pagos.map(p => p.cliente_id))
+  // Filtra los clientes que NO pagaron
+  return clientes.filter(cliente => !clientesQuePagaron.has(cliente.id))
 }
 
-export default async function DashboardPage({ searchParams }: { searchParams?: { [key: string]: string } }) {
+export const dynamic = 'force-dynamic';
+
+export default async function DashboardPage({ searchParams }: { searchParams?: { [key: string]: string | string[] | undefined } }) {
   // Obtener mes y año de los query params o usar el actual
-  const mesParam = Number(searchParams?.mes) || (new Date().getMonth() + 1)
-  const anioParam = Number(searchParams?.anio) || new Date().getFullYear()
-  const regionFiltro = searchParams?.region || ""
+  const mesParam = Number(searchParams?.mes) || (new Date().getMonth() + 1);
+  const anioParam = Number(searchParams?.anio) || new Date().getFullYear();
+  const regionFiltro = searchParams?.region || "";
 
   // Calcular primer y último día del mes seleccionado
   const firstDayOfMonth = new Date(anioParam, mesParam - 1, 1).toISOString()

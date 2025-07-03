@@ -34,9 +34,23 @@ export default function LoginPage() {
       router.push("/dashboard")
     } catch (error: any) {
       console.error("Login error:", error)
+      let mensaje = "Error desconocido. Intenta de nuevo."
+      if (error?.status === 400) {
+        mensaje = "Correo o contraseña incorrectos."
+      } else if (error?.status === 429) {
+        mensaje = "Demasiados intentos. Espera un momento e inténtalo de nuevo."
+      } else if (error?.message?.toLowerCase().includes("user not found")) {
+        mensaje = "Usuario no encontrado."
+      } else if (error?.message?.toLowerCase().includes("invalid login credentials")) {
+        mensaje = "Correo o contraseña incorrectos."
+      } else if (error?.message?.toLowerCase().includes("email not confirmed")) {
+        mensaje = "Debes confirmar tu correo electrónico antes de iniciar sesión."
+      } else if (error?.message) {
+        mensaje = error.message
+      }
       toast({
         title: "Error de inicio de sesión",
-        description: error.message || "Credenciales incorrectas",
+        description: mensaje,
         variant: "destructive",
       })
     } finally {

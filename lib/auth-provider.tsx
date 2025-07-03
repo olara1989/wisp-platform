@@ -85,7 +85,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (session?.user) {
           setUser(session.user)
-          setUserRole("admin") // Por ahora, asignar admin por defecto
+          // Consultar el rol en la tabla usuarios
+          try {
+            const { data: usuario, error: errorUsuario } = await supabase
+              .from('usuarios')
+              .select('rol')
+              .eq('email', session.user.email)
+              .single()
+            if (!errorUsuario && usuario?.rol) {
+              setUserRole(usuario.rol)
+            } else {
+              setUserRole(null)
+            }
+          } catch (e) {
+            setUserRole(null)
+          }
         } else {
           setUser(null)
           setUserRole(null)
@@ -99,7 +113,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           if (session?.user) {
             setUser(session.user)
-            setUserRole("admin")
+            // Consultar el rol en la tabla usuarios
+            try {
+              const { data: usuario, error: errorUsuario } = await supabase
+                .from('usuarios')
+                .select('rol')
+                .eq('email', session.user.email)
+                .single()
+              if (!errorUsuario && usuario?.rol) {
+                setUserRole(usuario.rol)
+              } else {
+                setUserRole(null)
+              }
+            } catch (e) {
+              setUserRole(null)
+            }
           } else {
             setUser(null)
             setUserRole(null)
@@ -133,18 +161,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = async (email: string, password: string) => {
     try {
       const supabase = createClientSupabaseClient()
+      console.log("[AUTH PROVIDER][signIn] Intentando login con:", { email, password })
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
-
+      console.log("[AUTH PROVIDER][signIn] Respuesta de Supabase:", { data, error })
       if (error) {
         throw error
       }
-
       return data
     } catch (error) {
-      console.error("[AUTH PROVIDER] Sign in error:", error)
+      console.error("[AUTH PROVIDER][signIn] Error en signIn:", error)
       throw error
     }
   }

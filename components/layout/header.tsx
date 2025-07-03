@@ -42,10 +42,10 @@ export const Header = memo(function Header() {
         <div className="flex items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200">
+              <span className="cursor-pointer">
                 <User className="h-5 w-5 text-gray-500 dark:text-gray-400 inline" />
                 <span className="sr-only">Menú de usuario</span>
-              </Button>
+              </span>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-lg transition-colors duration-200">
               <DropdownMenuLabel className="px-4 py-2 text-gray-800 dark:text-gray-200 font-medium">Mi cuenta</DropdownMenuLabel>
@@ -62,7 +62,7 @@ export const Header = memo(function Header() {
                   </a>
                 </DropdownMenuItem>
               )}
-              <DropdownMenuItem onClick={() => signOut()} className="flex items-center gap-2 px-4 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200 cursor-pointer">
+              <DropdownMenuItem onClick={async () => { await signOut(); window.location.href = "/login"; }} className="flex items-center gap-2 px-4 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200 cursor-pointer">
                 <LogOut className="mr-2 h-4 w-4 text-gray-500 dark:text-gray-400" />
                 <span>Cerrar sesión</span>
               </DropdownMenuItem>
