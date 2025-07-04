@@ -69,9 +69,9 @@ export default function CortesPage() {
         {loading ? (
           <Loader2 className="h-5 w-5 animate-spin text-primary" />
         ) : (
-          <Badge variant="outline" className="ml-2">
-            {clientesMorosos.length} clientes
-          </Badge>
+        <Badge variant="outline" className="ml-2">
+          {clientesMorosos.length} clientes
+        </Badge>
         )}
       </div>
 
@@ -119,79 +119,79 @@ export default function CortesPage() {
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-yellow-500" />
-              Clientes sin pago del mes correspondiente
-            </CardTitle>
-            <CardDescription>Lista de clientes que no han registrado pago del mes actual o anterior según la fecha</CardDescription>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-yellow-500" />
+            Clientes sin pago del mes correspondiente
+          </CardTitle>
+          <CardDescription>Lista de clientes que no han registrado pago del mes actual o anterior según la fecha</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Cliente</TableHead>
+                <TableHead>Teléfono</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Meses pendientes</TableHead>
+                <TableHead className="text-right">Acciones</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {clientesMorosos.length === 0 ? (
                 <TableRow>
-                  <TableHead>Cliente</TableHead>
-                  <TableHead>Teléfono</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Meses pendientes</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
+                  <TableCell colSpan={5} className="text-center py-8">
+                    No hay clientes sin pago del mes correspondiente
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {clientesMorosos.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8">
-                      No hay clientes sin pago del mes correspondiente
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  clientesMorosos.map((cliente) => {
+              ) : (
+                clientesMorosos.map((cliente) => {
                     const id = typeof cliente.id === 'string' ? cliente.id : String(cliente.id ?? '');
                     const nombre = typeof cliente.nombre === 'string' ? cliente.nombre : '-';
                     const telefono = typeof cliente.telefono === 'string' ? cliente.telefono : '-';
                     const email = typeof cliente.email === 'string' ? cliente.email : '-';
                     const mesesPendientes = Array.isArray(cliente.mesesPendientes) ? cliente.mesesPendientes : [];
                     const linkHistorial = `${process.env.NEXT_PUBLIC_BASE_URL || ''}/public/pagos/${id}`;
-                    const mensaje = encodeURIComponent(
-                      `Hola ${nombre}, te recordamos que tienes pagos pendientes correspondientes a los meses: ${mesesPendientes.join(", ")}.\n\nPor favor regulariza tu pago antes del día 5 de cada mes para evitar cortes en el servicio y multas por pago tardío.\n\nPuedes consultar tu historial de pagos aquí: ${linkHistorial}\n\nPuedes comunicarte con nosotros para más información.`
+                  const mensaje = encodeURIComponent(
+                    `Hola ${nombre}, te recordamos que tienes pagos pendientes correspondientes a los meses: ${mesesPendientes.join(", ")}.\n\nPor favor regulariza tu pago antes del día 5 de cada mes para evitar cortes en el servicio y multas por pago tardío.\n\nPuedes consultar tu historial de pagos aquí: ${linkHistorial}\n\nPuedes comunicarte con nosotros para más información.`
                     );
                     const whatsappUrl = telefono && telefono !== '-' ? `https://wa.me/${telefono.replace(/[^\d]/g, '')}?text=${mensaje}` : null;
-                    return (
-                      <TableRow key={id}>
-                        <TableCell className="font-medium">{nombre}</TableCell>
-                        <TableCell>{telefono}</TableCell>
-                        <TableCell>{email}</TableCell>
-                        <TableCell>{mesesPendientes.join(", ")}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button variant="outline" size="sm" asChild>
-                              <Link href={`/pagos/nuevo?cliente=${id}`} title="Registrar Pago">
-                                <CreditCard className="w-4 h-4" />
-                              </Link>
+                  return (
+                    <TableRow key={id}>
+                      <TableCell className="font-medium">{nombre}</TableCell>
+                      <TableCell>{telefono}</TableCell>
+                      <TableCell>{email}</TableCell>
+                      <TableCell>{mesesPendientes.join(", ")}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button variant="outline" size="sm" asChild>
+                            <Link href={`/pagos/nuevo?cliente=${id}`} title="Registrar Pago">
+                              <CreditCard className="w-4 h-4" />
+                            </Link>
+                          </Button>
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link href={`/public/pagos/${id}`} target="_blank" rel="noopener noreferrer" title="Ver Historial">
+                              <History className="w-4 h-4" />
+                            </Link>
+                          </Button>
+                          {whatsappUrl && (
+                            <Button variant="secondary" size="sm" asChild>
+                              <a href={whatsappUrl} target="_blank" rel="noopener noreferrer" title="Enviar WhatsApp">
+                                <MessageCircle className="w-4 h-4" />
+                              </a>
                             </Button>
-                            <Button variant="ghost" size="sm" asChild>
-                              <Link href={`/public/pagos/${id}`} target="_blank" rel="noopener noreferrer" title="Ver Historial">
-                                <History className="w-4 h-4" />
-                              </Link>
-                            </Button>
-                            {whatsappUrl && (
-                              <Button variant="secondary" size="sm" asChild>
-                                <a href={whatsappUrl} target="_blank" rel="noopener noreferrer" title="Enviar WhatsApp">
-                                  <MessageCircle className="w-4 h-4" />
-                                </a>
-                              </Button>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
                     );
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                })
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
       )}
     </DashboardLayout>
   );

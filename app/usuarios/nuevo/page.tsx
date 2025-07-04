@@ -5,25 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { redirect } from "next/navigation"
-import { createServerSupabaseClient } from "@/lib/supabase"
 import { useAuth } from "@/lib/auth-provider"
+import { createUsuario } from "../actions"
 
 export default function NuevoUsuarioPage() {
   const { userRole } = useAuth();
   if (userRole !== "admin") {
-    redirect("/login")
-  }
-
-  async function handleSubmit(formData: FormData) {
-    "use server"
-    const nombre = formData.get("nombre") as string
-    const email = formData.get("email") as string
-    const rol = formData.get("rol") as string
-    const password = formData.get("password") as string
-    const supabase = createServerSupabaseClient()
-    await supabase.from("usuarios").insert({ nombre, email, rol, password_hash: password })
-    redirect("/usuarios")
+    window.location.href = "/login";
+    return null;
   }
 
   return (
@@ -33,7 +22,7 @@ export default function NuevoUsuarioPage() {
           <CardTitle>Nuevo Usuario</CardTitle>
         </CardHeader>
         <CardContent>
-          <form action={handleSubmit} className="space-y-4">
+          <form action={createUsuario} className="space-y-4">
             <div>
               <Label htmlFor="nombre">Nombre</Label>
               <Input id="nombre" name="nombre" required />
