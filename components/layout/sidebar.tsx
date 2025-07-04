@@ -37,7 +37,7 @@ export const Sidebar = memo(function Sidebar({ className }: SidebarProps) {
         icon: Home,
         href: "/dashboard",
         active: pathname === "/dashboard",
-        roles: ["admin", "tecnico", "cajero"],
+        roles: ["admin", "tecnico"],
       },
       {
         label: "Clientes",
@@ -79,7 +79,7 @@ export const Sidebar = memo(function Sidebar({ className }: SidebarProps) {
         icon: AlertTriangle,
         href: "/cortes",
         active: pathname.startsWith("/cortes"),
-        roles: ["admin", "tecnico"],
+        roles: ["admin", "tecnico", "cajero"],
       },
       {
         label: "Configuración",

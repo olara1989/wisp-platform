@@ -17,7 +17,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("admin@wisp.com")
   const [password, setPassword] = useState("admin123")
   const [isLoading, setIsLoading] = useState(false)
-  const { signIn } = useAuth()
+  const { signIn, userRole } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
 
@@ -31,7 +31,6 @@ export default function LoginPage() {
         title: "Inicio de sesión exitoso",
         description: "Bienvenido a WISP Manager",
       })
-      router.push("/dashboard")
     } catch (error: any) {
       console.error("Login error:", error)
       let mensaje = "Error desconocido. Intenta de nuevo."

@@ -2,55 +2,132 @@
 
 import type React from "react"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import { useAuth } from "@/lib/auth-provider"
 import { Loader2 } from "lucide-react"
+import { toast } from "@/components/ui/use-toast"
 
 interface RouteGuardProps {
   children: React.ReactNode
 }
 
+// Rutas públicas que no requieren autenticación
+const publicRoutes = ["/", "/login", "/register", "/public/pagos/[id]"]
+
+// Mapa de rutas predeterminadas por rol al iniciar sesión o acceder a una ruta pública
+const defaultRoutes: Record<string, string> = {
+  admin: "/dashboard", // Ya estaba correcto
+  cajero: "/pagos",
+  tecnico: "/clientes", // Cambiado de /dashboard a /clientes
+}
+
+// Mapa de rutas permitidas por rol
+const roleRoutes: Record<string, string[]> = {
+  admin: [
+    // El rol admin tiene acceso a todo, se mantienen las rutas existentes
+    "/dashboard",
+    "/clientes",
+    "/clientes/nuevo",
+    "/clientes/[id]",
+    "/clientes/[id]/editar",
+    "/planes",
+    "/planes/nuevo",
+    "/planes/[id]",
+    "/planes/[id]/editar",
+    "/planes/[id]/eliminar",
+    "/routers",
+    "/routers/nuevo",
+    "/pagos",
+    "/pagos/nuevo",
+    "/usuarios",
+    "/usuarios/nuevo",
+    "/usuarios/[id]",
+    "/usuarios/[id]/editar",
+    "/usuarios/[id]/eliminar",
+    "/test-connection",
+    "/setup",
+    "/debug",
+    "/cortes",
+    "/cortes/suspender",
+  ],
+  cajero: [
+    "/clientes",
+    "/clientes/nuevo",
+    "/clientes/[id]",
+    "/clientes/[id]/editar",
+    "/pagos",
+    "/pagos/nuevo",
+    "/cortes", // Agregado
+    "/cortes/suspender", // Agregado
+  ],
+  tecnico: [
+    "/clientes",
+    "/clientes/nuevo", // Asegurando que se pueda crear un cliente
+    "/clientes/[id]",
+    "/clientes/[id]/editar", // Asegurando que se pueda editar un cliente
+  ],
+}
+
 export function RouteGuard({ children }: RouteGuardProps) {
-  const { user, isLoading, userRole } = useAuth()
+  const { user, userRole, isLoading } = useAuth() // 'initialized' eliminado
   const router = useRouter()
   const pathname = usePathname()
 
-  console.log("[ROUTE GUARD] Checking route:", { pathname, hasUser: !!user, isLoading })
+  // Función para verificar si la ruta actual es pública
+  const isCurrentPathPublic = publicRoutes.includes(pathname) || publicRoutes.some(route => {
+    if (route.includes("[id]")) {
+      const base = route.split("[id]")[0]
+      return pathname.startsWith(base)
+    }
+    return false
+  })
 
-  // Rutas públicas que no requieren autenticación
-  const publicRoutes = ["/login", "/setup", "/debug", "/test-connection", "/test-page"]
-  const isPublicRoute = publicRoutes.includes(pathname)
+  useEffect(() => {
+    console.log("[ROUTE GUARD] Checking route:", { pathname, hasUser: !!user, isLoading, userRole })
 
-  // Mapa de rutas permitidas por rol
-  const roleRoutes: Record<string, string[]> = {
-    admin: [
-      "/dashboard",
-      "/clientes",
-      "/clientes/nuevo",
-      "/clientes/[id]",
-      "/clientes/[id]/editar",
-      "/planes",
-      "/pagos",
-      "/pagos/nuevo",
-      "/cortes",
-      "/routers",
-      "/dispositivos",
-      "/configuracion",
-      // Agrega más rutas si es necesario
-    ],
-    tecnico: [
-      "/clientes",
-      "/clientes/nuevo",
-      "/clientes/[id]",
-      "/clientes/[id]/editar",
-    ],
-    cajero: [
-      "/pagos",
-      "/pagos/nuevo",
-      "/cortes",
-    ],
-  }
+    // Esperar solo si isLoading es true (incluye la carga inicial del rol)
+    if (isLoading) {
+      console.log("[ROUTE GUARD] Waiting for auth to load role.", { isLoading, user: !!user, userRole })
+      return
+    }
+
+    if (isCurrentPathPublic) {
+      console.log("[ROUTE GUARD] Public route, showing content")
+      // Si el usuario está autenticado y en una ruta pública, redirigir a su página predeterminada
+      if (user && userRole !== null && defaultRoutes[userRole]) { // userRole !== null check agregado
+        console.log(`[ROUTE GUARD] User authenticated on public route (${pathname}), redirecting to default for role ${userRole}: ${defaultRoutes[userRole]}`)
+        router.push(defaultRoutes[userRole])
+      } else {
+        console.log(`[ROUTE GUARD] Not redirecting from public route. User: ${!!user}, UserRole: ${userRole}, DefaultRoute: ${userRole !== null ? defaultRoutes[userRole] : 'N/A'}`)
+      }
+      return // Siempre mostrar contenido para rutas públicas o si no está logueado
+    }
+
+    // Si la ruta no es pública y no hay usuario, redirigir a login
+    if (!user) {
+      console.log("[ROUTE GUARD] No user, redirecting to login")
+      router.push("/login")
+      return
+    }
+
+    // Si el usuario está autenticado pero no tiene un rol válido (userRole es null), redirigir a login
+    if (user && userRole === null) { // userRole === null y isLoading es false por la condición inicial
+      console.log("[ROUTE GUARD] User has no valid role, redirecting to login")
+      router.push("/login")
+      return
+    }
+
+    // Si el usuario no tiene permiso para la ruta actual, redirigir a login
+    if (!isRouteAllowed(pathname, userRole)) {
+      console.log(`[ROUTE GUARD] User (${userRole}) does not have permission for this route (${pathname}), redirecting to login`)
+      router.push("/login")
+      return
+    }
+
+    console.log("[ROUTE GUARD] User authenticated, showing content")
+
+  }, [pathname, user, userRole, isLoading, router]) // 'initialized' eliminado de las dependencias
 
   // Función para verificar si la ruta está permitida para el rol
   function isRouteAllowed(path: string, role: string | null) {
@@ -80,32 +157,8 @@ export function RouteGuard({ children }: RouteGuardProps) {
     return isAllowed
   }
 
-  useEffect(() => {
-    // Solo redirigir si no estamos cargando, no hay usuario, y no es una ruta pública
-    if (!isLoading && !user && !isPublicRoute) {
-      console.log("[ROUTE GUARD] Redirecting to login from:", pathname)
-      router.push("/login")
-    }
-    // Si hay usuario pero no tiene permiso para la ruta, redirigir a login
-    if (!isLoading && user && !isPublicRoute && !isRouteAllowed(pathname, userRole)) {
-      console.log("[ROUTE GUARD] User does not have permission for this route, redirecting to login")
-      router.push("/login")
-    }
-    // Si hay usuario y está en /login, redirigir a /dashboard
-    if (!isLoading && user && pathname === "/login") {
-      console.log("[ROUTE GUARD] Usuario autenticado en /login, redirigiendo a /dashboard")
-      router.push("/dashboard")
-    }
-  }, [user, isLoading, isPublicRoute, router, pathname, userRole])
-
-  // Si es una ruta pública, siempre mostrar el contenido
-  if (isPublicRoute) {
-    console.log("[ROUTE GUARD] Public route, showing content")
-    return <>{children}</>
-  }
-
-  // Si estamos cargando en una ruta protegida, mostrar loading
-  if (isLoading) {
+  // Mostrar loading solo si isLoading es true y no es una ruta pública
+  if (isLoading && !isCurrentPathPublic) {
     console.log("[ROUTE GUARD] Loading, showing spinner")
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -114,8 +167,8 @@ export function RouteGuard({ children }: RouteGuardProps) {
     )
   }
 
-  // Si no hay usuario en una ruta protegida, mostrar loading mientras redirige
-  if (!user) {
+  // Si no hay usuario y no es una ruta pública (y ya no estamos cargando), mostrar loading mientras redirige
+  if (!user && !isCurrentPathPublic && !isLoading) {
     console.log("[ROUTE GUARD] No user, showing loading while redirecting")
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -124,7 +177,6 @@ export function RouteGuard({ children }: RouteGuardProps) {
     )
   }
 
-  // Si hay usuario, mostrar el contenido
-  console.log("[ROUTE GUARD] User authenticated, showing content")
+  // Si hay usuario, mostrar el contenido (si no se ha redirigido antes)
   return <>{children}</>
 }
