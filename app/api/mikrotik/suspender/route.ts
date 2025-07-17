@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server"
-import { createServerSupabaseClient } from "@/lib/supabase"
+import { createServerSupabaseClient, getCurrentUserRole } from "@/lib/supabase"
 
 export async function POST(request: Request) {
   try {
+    const userRole = await getCurrentUserRole();
+
+    if (userRole !== "admin" && userRole !== "tecnico") {
+      return NextResponse.json({ error: "Acceso no autorizado" }, { status: 403 });
+    }
+
     const { routerId, clienteIp, metodo } = await request.json()
 
     // Obtener información del router
@@ -26,6 +32,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error("Error en suspenderCliente:", error)
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Error interno del servidor",
+        details: error instanceof Error ? error.stack : "No hay detalles disponibles",
+      },
+      { status: 500 },
+    )
   }
 }

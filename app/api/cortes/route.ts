@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase";
+import { createServerSupabaseClient, getCurrentUserRole } from "@/lib/supabase";
 import { headers } from "next/headers";
 
 interface Cliente {
@@ -110,6 +110,12 @@ async function getClientesSinPagoDelMes(mesActual: number, anioActual: number) {
 
 export async function GET(request: Request) {
   try {
+    const userRole = await getCurrentUserRole();
+
+    if (userRole !== "admin" && userRole !== "cajero") {
+      return NextResponse.json({ error: "Acceso no autorizado" }, { status: 403 });
+    }
+
     const { searchParams } = new URL(request.url);
     const regionFiltro = searchParams.get("region") || "";
     const mesesFiltro = Number(searchParams.get("meses")) || 0;

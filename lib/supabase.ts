@@ -73,3 +73,25 @@ export const createClientSupabaseClient = () => {
   clientSingleton = createClientComponentClient()
   return clientSingleton
 }
+
+export const getCurrentUserRole = async (): Promise<string | null> => {
+  const supabase = createServerSupabaseClient();
+  const { data: { session } } = await supabase.auth.getSession();
+
+  if (!session || !session.user?.email) {
+    return null;
+  }
+
+  const { data: roleData, error } = await supabase
+    .from("usuarios")
+    .select("rol")
+    .eq("email", session.user.email)
+    .single<{ rol: string | null }>();
+
+  if (error) {
+    console.error("Error fetching user role from server:", error);
+    return null;
+  }
+
+  return roleData?.rol || null;
+};

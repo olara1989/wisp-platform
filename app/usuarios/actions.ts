@@ -1,9 +1,16 @@
 "use server";
 
-import { createServerSupabaseClient } from "@/lib/supabase";
+import { createServerSupabaseClient, getCurrentUserRole } from "@/lib/supabase";
 import { redirect } from "next/navigation";
 
 export async function createUsuario(formData: FormData) {
+  const userRole = await getCurrentUserRole();
+
+  if (userRole !== "admin") {
+    // Lanzar un error o redirigir a una página de acceso denegado
+    throw new Error("Acceso no autorizado para crear usuarios.");
+  }
+
   const nombre = formData.get("nombre") as string;
   const email = formData.get("email") as string;
   const rol = formData.get("rol") as string;
