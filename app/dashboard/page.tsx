@@ -85,11 +85,12 @@ async function getClientesMorososPorMes(mes: number, anio: number) {
 
 export const dynamic = 'force-dynamic';
 
-export default async function DashboardPage({ searchParams }: { searchParams?: { [key: string]: string | string[] | undefined } }) {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
   // Obtener mes y año de los query params o usar el actual
-  const mesParam = Number(searchParams?.mes) || (new Date().getMonth() + 1);
-  const anioParam = Number(searchParams?.anio) || new Date().getFullYear();
-  const regionFiltro = searchParams?.region || "";
+  const sp = await searchParams
+  const mesParam = Number(Array.isArray(sp?.mes) ? sp?.mes[0] : sp?.mes) || (new Date().getMonth() + 1)
+  const anioParam = Number(Array.isArray(sp?.anio) ? sp?.anio[0] : sp?.anio) || new Date().getFullYear()
+  const regionFiltro = (Array.isArray(sp?.region) ? sp?.region[0] : sp?.region) || ""
 
   // Calcular primer y último día del mes seleccionado
   const firstDayOfMonth = new Date(anioParam, mesParam - 1, 1).toISOString()
@@ -148,28 +149,25 @@ export default async function DashboardPage({ searchParams }: { searchParams?: {
   }
 
   // Obtener datos de ingresos por mes del año seleccionado
-  const ingresosPorMes: { mes: string, monto: number }[] = []
-  for (let m = 1; m <= 12; m++) {
-    const firstDay = new Date(anioParam, m - 1, 1).toISOString()
-    const lastDay = new Date(anioParam, m, 0, 23, 59, 59, 999).toISOString()
-    // Consulta a la base de datos para cada mes
-    // NOTA: Para optimización real, deberías hacer una sola consulta agrupada en SQL
-    // Aquí lo hacemos secuencial por simplicidad SSR
-    // eslint-disable-next-line no-await-in-loop
-    let ingresosQuery = supabase
-      .from("pagos")
-      .select("monto, fecha_pago")
-      .gte("fecha_pago", firstDay)
-      .lte("fecha_pago", lastDay)
-    
-    if (regionFiltro) {
-      ingresosQuery = ingresosQuery.eq("cliente_id", supabase.from("clientes").select("id").eq("region", regionFiltro))
-    }
-    
-    const { data: pagosMes } = await ingresosQuery
-    const total = pagosMes?.reduce((sum, pago) => sum + Number(pago.monto), 0) || 0
-    ingresosPorMes.push({ mes: MESES[m - 1], monto: total })
-  }
+  const ingresosPorMes = await Promise.all(
+    Array.from({ length: 12 }, (_, idx) => idx + 1).map(async (m) => {
+      const firstDay = new Date(anioParam, m - 1, 1).toISOString()
+      const lastDay = new Date(anioParam, m, 0, 23, 59, 59, 999).toISOString()
+      let ingresosQuery = supabase
+        .from("pagos")
+        .select("monto, fecha_pago")
+        .gte("fecha_pago", firstDay)
+        .lte("fecha_pago", lastDay)
+
+      if (regionFiltro) {
+        ingresosQuery = ingresosQuery.eq("cliente_id", supabase.from("clientes").select("id").eq("region", regionFiltro))
+      }
+
+      const { data: pagosMes } = await ingresosQuery
+      const total = pagosMes?.reduce((sum, pago) => sum + Number(pago.monto), 0) || 0
+      return { mes: MESES[m - 1], monto: total }
+    })
+  )
 
   // Obtener total de clientes activos (de la BD, no solo los que no son morosos)
   let clientesActivosQuery = supabase
@@ -220,15 +218,16 @@ export default async function DashboardPage({ searchParams }: { searchParams?: {
   const pieColors = ["#22c55e", "#facc15"]
 
   // Obtener clientes por región
-  const clientesPorRegion: { region: string, cantidad: number }[] = []
-  for (const region of REGIONES) {
-    const { data: clientesRegion, error: errorRegion } = await supabase
-      .from("clientes")
-      .select("id")
-      .eq("estado", "activo")
-      .eq("region", region.id)
-    clientesPorRegion.push({ region: region.nombre, cantidad: clientesRegion?.length || 0 })
-  }
+  const clientesPorRegion: { region: string, cantidad: number }[] = await Promise.all(
+    REGIONES.map(async (region) => {
+      const { data: clientesRegion } = await supabase
+        .from("clientes")
+        .select("id")
+        .eq("estado", "activo")
+        .eq("region", region.id)
+      return { region: region.nombre, cantidad: clientesRegion?.length || 0 }
+    })
+  )
 
   // Obtener distribución de clientes por tipo de antena
   const tiposAntena = [
@@ -237,15 +236,16 @@ export default async function DashboardPage({ searchParams }: { searchParams?: {
     "Fibra Conversor", "Fibra Onu"
   ]
   
-  const clientesPorAntena: { antena: string, cantidad: number }[] = []
-  for (const antena of tiposAntena) {
-    const { data: clientesAntena, error: errorAntena } = await supabase
-      .from("clientes")
-      .select("id")
-      .eq("estado", "activo")
-      .eq("antena", antena)
-    clientesPorAntena.push({ antena, cantidad: clientesAntena?.length || 0 })
-  }
+  const clientesPorAntena: { antena: string, cantidad: number }[] = await Promise.all(
+    tiposAntena.map(async (antena) => {
+      const { data: clientesAntena } = await supabase
+        .from("clientes")
+        .select("id")
+        .eq("estado", "activo")
+        .eq("antena", antena)
+      return { antena, cantidad: clientesAntena?.length || 0 }
+    })
+  )
   
   // Filtrar solo antenas que tienen clientes
   const antenasConClientes = clientesPorAntena.filter(item => item.cantidad > 0)
