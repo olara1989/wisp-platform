@@ -34,7 +34,6 @@ const getStats = cache(async () => {
     supabase.from("planes").select("*", { count: "exact", head: true }),
     supabase.from("routers").select("*", { count: "exact", head: true }),
   ])
-
   // Obtener suma de pagos del mes actual
   const now = new Date()
   const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()

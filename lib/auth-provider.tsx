@@ -57,6 +57,10 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
  * 3. Controla el acceso a rutas protegidas
  * 4. Muestra estados de carga
  */
+// Cache para el rol del usuario (evita múltiples consultas)
+const userRoleCache = new Map<string, { role: string | null, timestamp: number }>()
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutos
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [user, setUser] = useState<User | null>(null)
@@ -88,28 +92,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(session?.user || null);
     console.log("[AUTH PROVIDER][checkAuth] Session and user set:", { hasSession: !!session, hasUser: !!session?.user });
 
-    if (session && session.user?.email) {
-      console.log("[AUTH PROVIDER][checkAuth] Fetching user role for user email:", session.user.email);
-      const { data: roleData, error: roleError } = await supabase
-        .from("usuarios")
-        .select("rol")
-        .eq("email", session.user.email)
-        .single<{ rol: string | null }>();
+    let newUserRole: string | null = null;
 
-      if (roleError) {
-        console.error("[AUTH PROVIDER][checkAuth] Error fetching user role:", roleError);
-        setUserRole(null);
+    if (session && session.user?.email) {
+      const email = session.user.email;
+      
+      // Verificar caché primero
+      const cached = userRoleCache.get(email);
+      const now = Date.now();
+      if (cached && (now - cached.timestamp) < CACHE_DURATION) {
+        console.log("[AUTH PROVIDER][checkAuth] Using cached role for:", email);
+        newUserRole = cached.role;
       } else {
-        setUserRole(roleData?.rol || null);
-        console.log("[AUTH PROVIDER][checkAuth] User role set to:", roleData?.rol || null);
+        console.log("[AUTH PROVIDER][checkAuth] Fetching user role for user email:", email);
+        const { data: roleData, error: roleError } = await supabase
+          .from("usuarios")
+          .select("rol")
+          .eq("email", email)
+          .single<{ rol: string | null }>();
+
+        if (roleError) {
+          console.error("[AUTH PROVIDER][checkAuth] Error fetching user role:", roleError);
+          newUserRole = null;
+        } else {
+          newUserRole = roleData?.rol || null;
+          // Actualizar caché
+          userRoleCache.set(email, { role: newUserRole, timestamp: now });
+          console.log("[AUTH PROVIDER][checkAuth] User role set to:", newUserRole, "(cached)");
+        }
       }
     } else {
-      setUserRole(null);
       console.log("[AUTH PROVIDER][checkAuth] No session or email, user role set to null.");
     }
+    
+    setUserRole(newUserRole);
     setIsLoading(false);
-    console.log("[AUTH PROVIDER][checkAuth] Finished checkAuth. IsLoading:", false, "UserRole:", userRole);
-  }, [supabase, userRole]);
+    console.log("[AUTH PROVIDER][checkAuth] Finished checkAuth. IsLoading:", false, "UserRole:", newUserRole);
+  }, [supabase]);
 
   /**
    * Efecto para inicializar la autenticación
@@ -122,31 +141,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (_event: string, session: Session | null) => {
         console.log("[AUTH PROVIDER][onAuthStateChange] Auth state change detected:", { _event, hasSession: !!session });
-        setIsLoading(true);
+        
+        // Si es un SIGNED_OUT, limpiar caché del usuario actual
+        if (_event === 'SIGNED_OUT') {
+          if (user?.email) {
+            userRoleCache.delete(user.email);
+          }
+        }
+        
+        // Actualizar sesión y usuario inmediatamente (no esperar el rol)
         setSession(session);
         setUser(session?.user || null);
 
+        let finalRole: string | null = null;
+        
         if (session && session.user?.email) {
-          console.log("[AUTH PROVIDER][onAuthStateChange] Fetching user role for user email:", session.user.email);
+          const email = session.user.email;
+          
+          // Si el usuario cambió, limpiar caché del usuario anterior
+          // Verificar caché primero para respuesta inmediata
+          const cached = userRoleCache.get(email);
+          const now = Date.now();
+          if (cached && (now - cached.timestamp) < CACHE_DURATION) {
+            console.log("[AUTH PROVIDER][onAuthStateChange] Using cached role for:", email);
+            finalRole = cached.role;
+            setUserRole(finalRole);
+            setIsLoading(false);
+            return; // Salir temprano si tenemos caché
+          }
+          
+          // Solo mostrar loading si no tenemos caché
+          setIsLoading(true);
+          
+          console.log("[AUTH PROVIDER][onAuthStateChange] Fetching user role for user email:", email);
           const { data: roleData, error: roleError } = await supabase
             .from("usuarios")
             .select("rol")
-            .eq("email", session.user.email)
+            .eq("email", email)
             .single<{ rol: string | null }>();
 
           if (roleError) {
             console.error("[AUTH PROVIDER][onAuthStateChange] Error fetching user role:", roleError);
-            setUserRole(null);
+            finalRole = null;
           } else {
-            setUserRole(roleData?.rol || null);
-            console.log("[AUTH PROVIDER][onAuthStateChange] User role set to:", roleData?.rol || null);
+            finalRole = roleData?.rol || null;
+            // Actualizar caché
+            userRoleCache.set(email, { role: finalRole, timestamp: now });
+            console.log("[AUTH PROVIDER][onAuthStateChange] User role set to:", finalRole, "(cached)");
           }
         } else {
-          setUserRole(null);
           console.log("[AUTH PROVIDER][onAuthStateChange] No session or email, user role set to null.");
         }
+        
+        setUserRole(finalRole);
         setIsLoading(false);
-        console.log("[AUTH PROVIDER][onAuthStateChange] Finished auth state change. IsLoading:", false, "UserRole:", userRole);
+        console.log("[AUTH PROVIDER][onAuthStateChange] Finished auth state change. IsLoading:", false, "UserRole:", finalRole);
       },
     );
 
@@ -155,7 +204,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         authListener.subscription.unsubscribe();
       }
     };
-  }, [checkAuth, supabase, userRole]);
+  }, [checkAuth, supabase]);
 
   /**
    * Función para iniciar sesión
@@ -215,14 +264,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [supabase, router])
 
-  // Mostrar loading solo en rutas protegidas
-  if (isLoading && !isPublicRoute) {
-    console.log("[AUTH PROVIDER] Showing loading for protected route")
+  // Mostrar loading solo si estamos cargando Y no tenemos usuario todavía
+  // Si ya tenemos usuario pero estamos verificando el rol, mostrar contenido (optimistic render)
+  if (isLoading && !isPublicRoute && !user) {
+    console.log("[AUTH PROVIDER] Showing loading for protected route (no user yet)")
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     )
+  }
+  
+  // Si tenemos usuario pero aún no tenemos rol, mostrar contenido (el RouteGuard manejará la protección)
+  // Esto permite que las Server Components se rendericen mientras verificamos el rol
+  if (isLoading && user && !userRole && !isPublicRoute) {
+    console.log("[AUTH PROVIDER] User authenticated, waiting for role (showing content optimistically)")
   }
 
   return <AuthContext.Provider value={{ session, user, userRole, isLoading, signIn, signOut, checkAuth }}>{children}</AuthContext.Provider>
