@@ -86,10 +86,18 @@ export function RouteGuard({ children }: RouteGuardProps) {
   useEffect(() => {
     console.log("[ROUTE GUARD] Checking route:", { pathname, hasUser: !!user, isLoading, userRole })
 
-    // Esperar solo si isLoading es true (incluye la carga inicial del rol)
-    if (isLoading) {
-      console.log("[ROUTE GUARD] Waiting for auth to load role.", { isLoading, user: !!user, userRole })
+    // Si no hay usuario y estamos cargando, esperar
+    // Si hay usuario pero estamos cargando el rol, permitir renderizado optimista
+    if (isLoading && !user) {
+      console.log("[ROUTE GUARD] Waiting for auth to load (no user yet).", { isLoading, user: !!user, userRole })
       return
+    }
+    
+    // Si tenemos usuario pero no rol todavía, esperar un momento para que se cargue
+    // pero no bloquear si ya pasó suficiente tiempo
+    if (isLoading && user && userRole === null) {
+      console.log("[ROUTE GUARD] User authenticated, waiting for role (non-blocking).", { isLoading, user: !!user, userRole })
+      // No retornar aquí - permitir que continúe para verificar permisos después
     }
 
     if (isCurrentPathPublic) {
@@ -111,15 +119,23 @@ export function RouteGuard({ children }: RouteGuardProps) {
       return
     }
 
-    // Si el usuario está autenticado pero no tiene un rol válido (userRole es null), redirigir a login
-    if (user && userRole === null) { // userRole === null y isLoading es false por la condición inicial
-      console.log("[ROUTE GUARD] User has no valid role, redirecting to login")
+    // Si aún estamos cargando el rol, permitir contenido temporalmente (optimistic render)
+    // El servidor ya verificó permisos, así que es seguro mostrar el contenido
+    if (user && userRole === null && isLoading) {
+      console.log("[ROUTE GUARD] User authenticated, role loading in progress - allowing optimistic render")
+      return // Permitir mostrar contenido mientras se carga el rol
+    }
+    
+    // Si el usuario está autenticado pero no tiene un rol válido (userRole es null) Y ya no estamos cargando
+    if (user && userRole === null && !isLoading) {
+      console.log("[ROUTE GUARD] User has no valid role after loading, redirecting to login")
       router.push("/login")
       return
     }
 
     // Si el usuario no tiene permiso para la ruta actual, redirigir a login
-    if (!isRouteAllowed(pathname, userRole)) {
+    // Solo verificar si ya tenemos el rol cargado
+    if (userRole && !isRouteAllowed(pathname, userRole)) {
       console.log(`[ROUTE GUARD] User (${userRole}) does not have permission for this route (${pathname}), redirecting to login`)
       router.push("/login")
       return
@@ -157,9 +173,9 @@ export function RouteGuard({ children }: RouteGuardProps) {
     return isAllowed
   }
 
-  // Mostrar loading solo si isLoading es true y no es una ruta pública
-  if (isLoading && !isCurrentPathPublic) {
-    console.log("[ROUTE GUARD] Loading, showing spinner")
+  // Mostrar loading solo si no hay usuario Y estamos cargando (no para carga de rol)
+  if (isLoading && !user && !isCurrentPathPublic) {
+    console.log("[ROUTE GUARD] Loading, showing spinner (no user)")
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
