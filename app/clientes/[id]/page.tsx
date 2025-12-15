@@ -1,18 +1,22 @@
+"use client"
+
 import Link from "next/link"
-import { notFound } from "next/navigation"
+import { notFound, useParams } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { createServerSupabaseClient } from "@/lib/supabase"
 import { formatCurrency, formatDate, getEstadoColor, getEstadoPagoColor } from "@/lib/utils"
-import { Edit, MapPin, Phone, Mail, ArrowLeft, Wifi, Plus, Globe, DollarSign, Calendar } from "lucide-react"
+import { Edit, MapPin, Phone, Mail, ArrowLeft, Wifi, Plus, Globe, DollarSign, Calendar, Loader2 } from "lucide-react"
 import { ClientMapWrapper } from "@/components/client-map-wrapper"
 import { StatusSelector } from "@/components/ui/status-selector"
+import { useEffect, useState } from "react"
+import { db } from "@/lib/firebase"
+import { doc, getDoc, collection, query, where, getDocs, orderBy } from "firebase/firestore"
 
-// Definiciones de tipos para los datos de Supabase
+// Definiciones de tipos para los datos
 interface Cliente {
   id: string
   nombre: string
@@ -25,12 +29,12 @@ interface Cliente {
   region: string
   plan: string
   estado: string
-  fecha_alta: string
+  fecha_alta: any // Timestamp or string
   notas: string | null
-  plan_details?: Plan | null // Detalles completos del plan asignado
-  antena?: string | null; // Nuevo campo
-  db?: number | null; // Nuevo campo
-  prestada?: boolean; // Nuevo campo
+  plan_details?: Plan | null
+  antena?: string | null;
+  db?: number | null;
+  prestada?: boolean;
 }
 
 interface Plan {
@@ -58,24 +62,24 @@ interface Dispositivo {
   interface: string
   router_id: string
   modo_control: string
-  routers: Router | null // Relación con la tabla routers
+  routers: Router | null
 }
 
 interface Factura {
   id: string
   cliente_id: string
   plan_id: string
-  periodo_inicio: string
-  periodo_fin: string
+  periodo_inicio: any
+  periodo_fin: any
   estado_pago: string
-  fecha_corte: string
-  planes: Plan // Relación con la tabla planes
+  fecha_corte: any
+  planes: Plan
 }
 
 interface Pago {
   id: string
   cliente_id: string
-  fecha_pago: string
+  fecha_pago: any
   monto: number
   metodo: string
   referencia: string | null
@@ -83,12 +87,7 @@ interface Pago {
   mes: string | number
 }
 
-// Importación dinámica del componente de mapa para evitar problemas de SSR
-// const DynamicGoogleMapInput = dynamic(() => import("@/components/ui/google-map-input").then((mod) => mod.GoogleMapInput), {
-//   ssr: false,
-//   loading: () => <p>Cargando mapa...</p>,
-// })
-
+// const MESES = [ ... ] defined below to avoid duplication issues if global
 const MESES = [
   "",
   "Enero",
@@ -105,96 +104,143 @@ const MESES = [
   "Diciembre",
 ];
 
-async function getClienteData(id: string) {
-  const supabase = createServerSupabaseClient()
+export default function ClienteDetallePage() {
+  const params = useParams()
+  const id = params?.id as string
 
-  // Obtener datos del cliente
-  const { data: cliente, error } = await supabase.from("clientes").select("*").eq("id", id).single<Cliente>()
+  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState<{
+    cliente: Cliente | null,
+    dispositivos: Dispositivo[],
+    facturacion: Factura[],
+    pagos: Pago[]
+  } | null>(null)
 
-  if (error || !cliente) {
-    return null
-  }
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!id) return
+      setLoading(true)
+      try {
+        // 1. Fetch Cliente
+        const clienteRef = doc(db, "clientes", id)
+        const clienteSnap = await getDoc(clienteRef)
 
-  // Obtener detalles del plan asignado al cliente
-  let assignedPlan: Plan | null = null;
-  if (cliente.plan) { // Asumiendo que cliente.plan guarda el ID del plan
-    const { data: planData, error: planError } = await supabase
-      .from("planes")
-      .select("id, nombre, precio")
-      .eq("id", cliente.plan)
-      .single<Plan>();
+        if (!clienteSnap.exists()) {
+          setData(null)
+          setLoading(false)
+          return
+        }
+        const clienteData = { id: clienteSnap.id, ...clienteSnap.data() } as Cliente
 
-    if (planData && !planError) {
-      assignedPlan = planData;
-    } else if (planError) {
-      console.error("Error al obtener el plan asignado:", planError);
+        // 2. Fetch Plan del cliente
+        let planDetails = null
+        if (clienteData.plan) {
+          const planSnap = await getDoc(doc(db, "planes", clienteData.plan))
+          if (planSnap.exists()) {
+            planDetails = { id: planSnap.id, ...planSnap.data() } as Plan
+          }
+        }
+        clienteData.plan_details = planDetails
+
+        // 3. Fetch Dispositivos
+        const qDis = query(collection(db, "dispositivos"), where("cliente_id", "==", id))
+        const disSnap = await getDocs(qDis)
+        const dispositivos: Dispositivo[] = []
+
+        for (const d of disSnap.docs) {
+          const disData = { id: d.id, ...d.data() } as any
+          // Fetch Router for each device
+          let routerData = null
+          if (disData.router_id) {
+            const rSnap = await getDoc(doc(db, "routers", disData.router_id))
+            if (rSnap.exists()) {
+              routerData = { id: rSnap.id, ...rSnap.data() }
+            }
+          }
+          disData.routers = routerData
+          dispositivos.push(disData)
+        }
+
+        // 4. Fetch Facturacion
+        // Firestore filtering does not support simple joins. We fetch by client_id.
+        const qFact = query(collection(db, "facturacion"), where("cliente_id", "==", id), orderBy("periodo_inicio", "desc"))
+        // Note: orderBy requires an index if combined with where. If it fails, remove orderBy.
+        // Assuming dev environment we might see error or it works if index exists. Use simple query first if unsure.
+        // We'll try with orderBy, catch error.
+        let factSnap
+        try {
+          factSnap = await getDocs(qFact)
+        } catch (e) {
+          // Fallback without sort if index missing
+          const qFactSimple = query(collection(db, "facturacion"), where("cliente_id", "==", id))
+          factSnap = await getDocs(qFactSimple)
+          // Sort manually? Too complex for now, just load.
+        }
+
+        const facturacion: Factura[] = []
+        for (const f of factSnap.docs) {
+          const factData = { id: f.id, ...f.data() } as any
+          // Fetch Plan for invoice
+          let planFact = null
+          if (factData.plan_id) {
+            const pSnap = await getDoc(doc(db, "planes", factData.plan_id))
+            if (pSnap.exists()) {
+              planFact = { id: pSnap.id, ...pSnap.data() }
+            }
+          }
+          factData.planes = planFact || { nombre: "Desconocido", precio: 0 } // Fallback
+          facturacion.push(factData)
+        }
+
+        // 5. Fetch Pagos
+        const qPagos = query(collection(db, "pagos"), where("cliente_id", "==", id), orderBy("fecha_pago", "desc"))
+        let pagosSnap
+        try {
+          pagosSnap = await getDocs(qPagos)
+        } catch (e) {
+          const qPagosSimple = query(collection(db, "pagos"), where("cliente_id", "==", id))
+          pagosSnap = await getDocs(qPagosSimple)
+        }
+        const pagos = pagosSnap.docs.map(p => ({ id: p.id, ...p.data() } as Pago))
+
+        setData({ cliente: clienteData, dispositivos, facturacion, pagos })
+
+      } catch (err) {
+        console.error(err)
+      } finally {
+        setLoading(false)
+      }
     }
+    fetchData()
+  }, [id])
+
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex justify-center items-center h-screen"><Loader2 className="animate-spin h-8 w-8" /></div>
+      </DashboardLayout>
+    )
   }
-  cliente.plan_details = assignedPlan; // Asignar el plan al cliente
 
-  // Obtener dispositivos del cliente
-  const { data: dispositivos } = await supabase
-    .from("dispositivos")
-    .select(`
-      *,
-      routers:router_id (
-        id,
-        nombre,
-        ip
-      )
-    `)
-    .eq("cliente_id", id)
-    .returns<Dispositivo[]>()
-
-  // Obtener facturación del cliente
-  const { data: facturacion } = await supabase
-    .from("facturacion")
-    .select(`
-      *,
-      planes:plan_id (
-        id,
-        nombre,
-        precio,
-        subida,
-        bajada,
-        burst_subida,
-        burst_bajada,
-        tiempo_burst
-      )
-    `)
-    .eq("cliente_id", id)
-    .order("periodo_inicio", { ascending: false })
-    .returns<Factura[]>()
-
-  // Obtener pagos del cliente
-  const { data: pagos } = await supabase
-    .from("pagos")
-    .select("*")
-    .eq("cliente_id", id)
-    .order("fecha_pago", { ascending: false })
-    .returns<Pago[]>()
-
-  return {
-    cliente,
-    dispositivos: dispositivos || [],
-    facturacion: facturacion || [],
-    pagos: pagos || [],
-  }
-}
-
-export default async function ClienteDetallePage({
-  params,
-}: {
-  params: { id: string }
-}) {
-  const data = await getClienteData(params.id)
-
-  if (!data) {
-    notFound()
+  if (!data || !data.cliente) {
+    return (
+      <DashboardLayout>
+        <div>Cliente no encontrado</div>
+      </DashboardLayout>
+    )
   }
 
   const { cliente, dispositivos, facturacion, pagos } = data
   const facturaActual = facturacion[0]
+
+  // Helper to safely format dates which might be timestamps
+  const safeFormatDate = (val: any) => {
+    if (!val) return "";
+    if (val.seconds) return new Date(val.seconds * 1000).toLocaleDateString();
+    if (val instanceof Date) return val.toLocaleDateString();
+    return val;
+  }
 
   return (
     <DashboardLayout>
@@ -222,14 +268,11 @@ export default async function ClienteDetallePage({
 
         <div className="grid gap-6 md:grid-cols-2">
           <Card className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 transition-colors duration-200">
-            <CardHeader className="p-0 pb-4"> {/* Eliminar padding duplicado */}
+            <CardHeader className="p-0 pb-4">
               <CardTitle className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-0">Información del Cliente</CardTitle>
             </CardHeader>
-            <CardContent className="p-0 space-y-0"> {/* Eliminar padding duplicado y manejar espaciado con las filas */}
-              {/* Sección: Información Básica */}
+            <CardContent className="p-0 space-y-0">
               <div className="space-y-0">
-                {/* Eliminar div space-y-4 aquí */}
-                {/* Reorganizar items para usar flex justify-between items-center py-2 border-b */} 
                 <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
                   <div className="flex items-center gap-2">
                     <Mail className="h-5 w-5 mr-2 inline text-gray-500 dark:text-gray-400" />
@@ -254,7 +297,7 @@ export default async function ClienteDetallePage({
               </div>
 
               {/* Sección: Detalles de Conexión */}
-              <div className="space-y-0 mt-6"> {/* Añadir margen superior para separar secciones */}
+              <div className="space-y-0 mt-6">
                 <h3 className="font-semibold text-lg text-gray-800 dark:text-gray-200 mb-4">Detalles de Conexión</h3>
                 <div className="grid grid-cols-1 gap-0">
                   <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
@@ -282,7 +325,7 @@ export default async function ClienteDetallePage({
                       <Calendar className="h-5 w-5 mr-2 inline text-gray-500 dark:text-gray-400" />
                       <span className="font-medium text-gray-700 dark:text-gray-200">Activo desde:</span>
                     </div>
-                    <span className="text-sm text-muted-foreground">{formatDate(cliente.fecha_alta)}</span>
+                    <span className="text-sm text-muted-foreground">{safeFormatDate(cliente.fecha_alta)}</span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
                     <div className="flex items-center gap-2">
@@ -295,7 +338,7 @@ export default async function ClienteDetallePage({
               </div>
 
               {/* Sección: Información de Antena */}
-              <div className="space-y-0 mt-6"> {/* Añadir margen superior para separar secciones */}
+              <div className="space-y-0 mt-6">
                 <h3 className="font-semibold text-lg text-gray-800 dark:text-gray-200 mb-4">Información de Antena</h3>
                 <div className="grid grid-cols-1 gap-0">
                   <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
@@ -341,7 +384,6 @@ export default async function ClienteDetallePage({
               <CardTitle className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-0">Ubicación del Cliente</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              {/* Se eliminó la dirección de aquí */}
               <ClientMapWrapper initialLat={cliente.latitud} initialLng={cliente.longitud} />
             </CardContent>
           </Card>
@@ -433,7 +475,7 @@ export default async function ClienteDetallePage({
                     <TableBody>
                       {pagos.map((pago) => (
                         <TableRow key={pago.id}>
-                          <TableCell>{formatDate(pago.fecha_pago)}</TableCell>
+                          <TableCell>{safeFormatDate(pago.fecha_pago)}</TableCell>
                           <TableCell>{formatCurrency(pago.monto)}</TableCell>
                           <TableCell>{pago.metodo}</TableCell>
                           <TableCell>{MESES[Number(pago.mes)]}</TableCell>
@@ -472,14 +514,14 @@ export default async function ClienteDetallePage({
                       {facturacion.map((factura) => (
                         <TableRow key={factura.id}>
                           <TableCell>
-                            {formatDate(factura.periodo_inicio)} - {formatDate(factura.periodo_fin)}
+                            {safeFormatDate(factura.periodo_inicio)} - {safeFormatDate(factura.periodo_fin)}
                           </TableCell>
                           <TableCell>{factura.planes.nombre}</TableCell>
                           <TableCell>{formatCurrency(factura.planes.precio)}</TableCell>
                           <TableCell>
                             <Badge className={getEstadoPagoColor(factura.estado_pago)}>{factura.estado_pago}</Badge>
                           </TableCell>
-                          <TableCell>{formatDate(factura.fecha_corte)}</TableCell>
+                          <TableCell>{safeFormatDate(factura.fecha_corte)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

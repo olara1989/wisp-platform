@@ -12,7 +12,8 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
-import { createClientSupabaseClient } from "@/lib/supabase"
+import { db } from "@/lib/firebase"
+import { collection, updateDoc, getDocs, getDoc, doc, query, orderBy } from "firebase/firestore"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import { RegionSelect } from "@/components/ui/region-select"
 import dynamic from "next/dynamic"
@@ -85,36 +86,25 @@ export default function EditarClientePage({ params }: { params: Promise<{ id: st
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const supabase = createClientSupabaseClient()
-        
         // Obtener planes
-        const { data: planesData, error: planesError } = await supabase
-          .from('planes')
-          .select('id, nombre, precio')
-          .order('nombre')
-          .returns<Plan[]>()
-
-        if (planesError) {
-          throw planesError
-        }
-
-        setPlanes(planesData || [])
+        const q = query(collection(db, 'planes'), orderBy('nombre'))
+        const querySnapshot = await getDocs(q)
+        const planesData: Plan[] = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          nombre: doc.data().nombre,
+          precio: doc.data().precio
+        }))
+        setPlanes(planesData)
 
         // Obtener datos del cliente
-        const { data: cliente, error: clienteError } = await supabase
-          .from("clientes")
-          .select("*")
-          .eq("id", resolvedParams.id)
-          .single()
-          .returns<Cliente>()
+        const docRef = doc(db, "clientes", resolvedParams.id);
+        const docSnap = await getDoc(docRef);
 
-        if (clienteError) {
-          throw clienteError
-        }
-
-        if (!cliente) {
+        if (!docSnap.exists()) {
           throw new Error("Cliente no encontrado")
         }
+
+        const cliente = docSnap.data() as Cliente;
 
         setFormData({
           nombre: cliente.nombre,
@@ -168,8 +158,6 @@ export default function EditarClientePage({ params }: { params: Promise<{ id: st
     setIsSaving(true)
 
     try {
-      const supabase = createClientSupabaseClient()
-
       // Validación básica
       if (
         !formData.nombre.trim() ||
@@ -188,27 +176,21 @@ export default function EditarClientePage({ params }: { params: Promise<{ id: st
         return
       }
 
-      const { error } = await supabase
-        .from("clientes")
-        .update({
-          nombre: formData.nombre.trim(),
-          telefono: formData.telefono.trim(),
-          email: formData.email?.trim() || null,
-          direccion: formData.direccion?.trim() || null,
-          ip: formData.ip.trim(),
-          region: formData.region.trim(),
-          plan: formData.plan.trim(),
-          latitud: formData.latitud,
-          longitud: formData.longitud,
-          antena: formData.antena || null,
-          db: formData.db !== null ? Number(formData.db) : null,
-          prestada: formData.prestada,
-        })
-        .eq("id", resolvedParams.id)
-
-      if (error) {
-        throw error
-      }
+      const docRef = doc(db, "clientes", resolvedParams.id);
+      await updateDoc(docRef, {
+        nombre: formData.nombre.trim(),
+        telefono: formData.telefono.trim(),
+        email: formData.email?.trim() || null,
+        direccion: formData.direccion?.trim() || null,
+        ip: formData.ip.trim(),
+        region: formData.region.trim(),
+        plan: formData.plan.trim(),
+        latitud: formData.latitud,
+        longitud: formData.longitud,
+        antena: formData.antena || null,
+        db: formData.db !== null ? Number(formData.db) : null,
+        prestada: formData.prestada,
+      });
 
       toast({
         title: "Cliente actualizado",
@@ -386,7 +368,7 @@ export default function EditarClientePage({ params }: { params: Promise<{ id: st
                 <Checkbox
                   id="prestada"
                   checked={formData.prestada}
-                  onCheckedChange={(checked) => 
+                  onCheckedChange={(checked) =>
                     setFormData(prev => ({ ...prev, prestada: checked as boolean }))
                   }
                 />

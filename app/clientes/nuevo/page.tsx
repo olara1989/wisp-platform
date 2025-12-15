@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/ui/use-toast"
-import { createClientSupabaseClient } from "@/lib/supabase"
+import { db } from "@/lib/firebase"
+import { collection, addDoc, getDocs, query, orderBy } from "firebase/firestore"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { RegionSelect } from "@/components/ui/region-select"
@@ -69,24 +70,23 @@ export default function NuevoClientePage() {
 
   useEffect(() => {
     const fetchPlanes = async () => {
-      const supabase = createClientSupabaseClient()
-      const { data, error } = await supabase
-        .from('planes')
-        .select('id, nombre, precio')
-        .order('nombre')
-        .returns<Plan[]>()
-
-      if (error) {
+      try {
+        const q = query(collection(db, 'planes'), orderBy('nombre'))
+        const querySnapshot = await getDocs(q)
+        const planesData: Plan[] = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          nombre: doc.data().nombre,
+          precio: doc.data().precio
+        }))
+        setPlanes(planesData)
+      } catch (error) {
         console.error('Error al obtener planes:', error)
         toast({
           title: "Error",
           description: "No se pudieron cargar los planes",
           variant: "destructive",
         })
-        return
       }
-
-      setPlanes(data || [])
     }
 
     fetchPlanes()
@@ -137,8 +137,7 @@ export default function NuevoClientePage() {
     setIsLoading(true)
 
     try {
-      const supabase = createClientSupabaseClient()
-      console.log("[NUEVO CLIENTE] Supabase client created")
+      console.log("[NUEVO CLIENTE] Inserting client data to Firestore")
 
       // Preparar datos para insertar
       const clienteData = {
@@ -160,18 +159,9 @@ export default function NuevoClientePage() {
 
       console.log("[NUEVO CLIENTE] Inserting client data:", clienteData)
 
-      const { data, error } = await supabase.from("clientes").insert(clienteData).select()
+      const docRef = await addDoc(collection(db, "clientes"), clienteData)
 
-      if (error) {
-        console.error("[NUEVO CLIENTE] Supabase error:", error)
-        throw new Error(error.message || "Error al crear el cliente")
-      }
-
-      if (!data || data.length === 0) {
-        throw new Error("No se pudo crear el cliente")
-      }
-
-      console.log("[NUEVO CLIENTE] Client created successfully:", data[0])
+      console.log("[NUEVO CLIENTE] Client created successfully with ID:", docRef.id)
 
       toast({
         title: "Cliente creado",

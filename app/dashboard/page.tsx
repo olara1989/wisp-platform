@@ -1,13 +1,15 @@
+"use client"
+
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { createServerSupabaseClient } from "@/lib/supabase"
 import { formatCurrency } from "@/lib/utils"
-import { Users, Package, CreditCard, AlertTriangle, Router } from "lucide-react"
-import { cache } from "react"
-import { redirect } from "next/navigation"
+import { Users, Package, CreditCard, AlertTriangle, Loader2 } from "lucide-react"
+import { useState, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { DashboardCharts, DashboardClientesPorRegionChart, DashboardClientesPorAntenaChart } from "@/components/DashboardCharts"
 import { REGIONES } from "@/lib/types/regiones"
-import type { ReadonlyURLSearchParams } from "next/navigation"
+import { db } from "@/lib/firebase"
+import { collection, getDocs, query, where, Timestamp, orderBy } from "firebase/firestore"
 
 const MESES = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
@@ -23,231 +25,251 @@ function getAnios() {
   return anios
 }
 
-// Usar cache para evitar múltiples llamadas a la base de datos
-const getStats = cache(async () => {
-  const supabase = createServerSupabaseClient()
+export default function DashboardPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
 
-  // Ejecutar consultas en paralelo para mejorar el rendimiento
-  const [clientesResult, morososResult, planesResult, routersResult] = await Promise.all([
-    supabase.from("clientes").select("*", { count: "exact", head: true }),
-    supabase.from("clientes").select("*", { count: "exact", head: true }).eq("estado", "moroso"),
-    supabase.from("planes").select("*", { count: "exact", head: true }),
-    supabase.from("routers").select("*", { count: "exact", head: true }),
-  ])
-  // Obtener suma de pagos del mes actual
-  const now = new Date()
-  const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
-  const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString()
+  // Params
+  const mesParam = Number(searchParams.get("mes")) || (new Date().getMonth() + 1)
+  const anioParam = Number(searchParams.get("anio")) || new Date().getFullYear()
+  const regionFiltro = searchParams.get("region") || ""
 
-  const { data: pagosMes } = await supabase
-    .from("pagos")
-    .select("monto")
-    .gte("fecha_pago", firstDayOfMonth)
-    .lte("fecha_pago", lastDayOfMonth)
+  // State
+  const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState({
+    clientesCount: 0,
+    clientesMorosos: 0,
+    planesCount: 0,
+    routersCount: 0,
+    totalPagosMes: 0,
+    porcentajeMorosos: 0,
+    clientesActivos: 0,
+    ticketPromedio: 0,
+    totalEsperado: 0
+  })
 
-  const totalPagosMes = pagosMes?.reduce((sum, pago) => sum + Number(pago.monto), 0) || 0
+  const [pieData, setPieData] = useState<{ name: string, value: number }[]>([])
+  const [clientesPorRegion, setClientesPorRegion] = useState<{ region: string, cantidad: number }[]>([])
+  const [clientesPorAntena, setClientesPorAntena] = useState<{ antena: string, cantidad: number }[]>([])
+  const [ingresosPorMes, setIngresosPorMes] = useState<{ mes: string, monto: number }[]>([])
 
-  return {
-    clientesCount: clientesResult.count || 0,
-    clientesMorosos: morososResult.count || 0,
-    planesCount: planesResult.count || 0,
-    routersCount: routersResult.count || 0,
-    totalPagosMes,
-    porcentajeMorosos: ((clientesResult.count || 0) ? (morososResult.count || 0) / (clientesResult.count || 0) * 100 : 0),
-    clientesActivos: (clientesResult.count || 0) - (morososResult.count || 0),
-    ticketPromedio: (clientesResult.count || 0) > 0 ? totalPagosMes / (clientesResult.count || 1) : 0,
-  }
-})
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true)
+      try {
+        // 1. Fetch Basic Collections
+        // Use Client SDK. For large datasets, server-side aggregation is better, 
+        // but we are sticking to Client SDK as per migration validation.
 
-// Función para obtener clientes morosos según pagos del mes/año seleccionado
-async function getClientesMorososPorMes(mes: number, anio: number) {
-  const supabase = createServerSupabaseClient()
-  // Obtener todos los clientes activos
-  const { data: clientes, error: errorClientes } = await supabase
-    .from("clientes")
-    .select("id, nombre, telefono, email, estado, plan, fecha_alta, region")
-    .eq("estado", "activo")
-  if (errorClientes || !clientes) return []
+        // Fetch Routers
+        const routersSnap = await getDocs(collection(db, "routers"))
+        const routersCount = routersSnap.size
 
-  // Obtener todos los pagos de ese mes/año
-  const { data: pagos, error: errorPagos } = await supabase
-    .from("pagos")
-    .select("cliente_id")
-    .eq("mes", mes)
-    .eq("anio", anio)
-  if (errorPagos || !pagos) return clientes // Si hay error, asume todos morosos
+        // Fetch Planes
+        const planesSnap = await getDocs(collection(db, "planes"))
+        const planesCount = planesSnap.size
+        const planesMap = new Map()
+        planesSnap.forEach(doc => planesMap.set(doc.id, doc.data().precio))
 
-  const clientesQuePagaron = new Set(pagos.map(p => p.cliente_id))
-  // Filtra los clientes que NO pagaron
-  return clientes.filter(cliente => !clientesQuePagaron.has(cliente.id))
-}
+        // Fetch Clientes (ALL)
+        // We need all to calculate stats, filter by region locally if needed or in query
+        // If filtering by region, we can optimize query
+        let clientesQuery = collection(db, "clientes")
+        let clientesSnap
 
-export const dynamic = 'force-dynamic';
+        // Firestore doesn't support dynamic complex filters easily without indexes. 
+        // We'll fetch all and filter in memory for complex logic like "active & region" if dataset is small (< few thousands)
+        // For rigorous region filtering:
+        if (regionFiltro) {
+          const q = query(collection(db, "clientes"), where("region", "==", regionFiltro))
+          clientesSnap = await getDocs(q)
+        } else {
+          clientesSnap = await getDocs(collection(db, "clientes"))
+        }
 
-export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
-  // Obtener mes y año de los query params o usar el actual
-  const sp = await searchParams
-  const mesParam = Number(Array.isArray(sp?.mes) ? sp?.mes[0] : sp?.mes) || (new Date().getMonth() + 1)
-  const anioParam = Number(Array.isArray(sp?.anio) ? sp?.anio[0] : sp?.anio) || new Date().getFullYear()
-  const regionFiltro = (Array.isArray(sp?.region) ? sp?.region[0] : sp?.region) || ""
+        const clientes = clientesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any))
 
-  // Calcular primer y último día del mes seleccionado
-  const firstDayOfMonth = new Date(anioParam, mesParam - 1, 1).toISOString()
-  const lastDayOfMonth = new Date(anioParam, mesParam, 0, 23, 59, 59, 999).toISOString()
+        const clientesCount = clientes.length
+        const clientesActivosDB = clientes.filter(c => c.estado === "activo")
+        const clientesActivosCountDB = clientesActivosDB.length
 
-  const supabase = createServerSupabaseClient()
+        // Total Esperado (Sum of plan prices for active clients)
+        const totalEsperado = clientesActivosDB.reduce((sum, client) => {
+          const precio = client.plan ? planesMap.get(client.plan) : 0
+          return sum + (precio ? Number(precio) : 0)
+        }, 0)
 
-  // Ejecutar consultas en paralelo para mejorar el rendimiento
-  let clientesQuery = supabase.from("clientes").select("*", { count: "exact", head: true })
-  let morososQuery = supabase.from("clientes").select("*", { count: "exact", head: true }).eq("estado", "moroso")
-  
-  if (regionFiltro) {
-    clientesQuery = clientesQuery.eq("region", regionFiltro)
-    morososQuery = morososQuery.eq("region", regionFiltro)
-  }
-  
-  const [clientesResult, morososResult, planesResult, routersResult] = await Promise.all([
-    clientesQuery,
-    morososQuery,
-    supabase.from("planes").select("*", { count: "exact", head: true }),
-    supabase.from("routers").select("*", { count: "exact", head: true }),
-  ])
+        // Fetch Pagos (Month & Year)
+        // We need payments for the selected Month/Year to calc Income & Morosos
+        // Firestore dates are timestamps or strings depending on migration. Assuming strings "YYYY-MM-DD" or similar based on previous files,
+        // OR checks on `mes` and `anio` fields if they exist in `pagos`.
+        // The previous code used: .eq("mes", mes).eq("anio", anio) for morosos
+        // And date range for amounts.
+        // Let's check `pagos` structure from `route` or previous files. `pagos` has `mes` and `anio` stored as numbers/strings?
+        // `api/cortes/route.ts` implies `pagos` has `mes` and `anio`.
+        // `dashboard/page.tsx` used `fecha_pago` range for amounts. 
+        // We will use `fecha_pago` range for amounts and `mes`/`anio` fields if available for logic reliability.
+        // Actually, if we use `fecha_pago`, we can derive mes/anio.
+        // Let's stick to `fecha_pago` for consistency with "payments made in this period".
 
-  // Obtener suma de pagos del mes/año seleccionado
-  let pagosQuery = supabase
-    .from("pagos")
-    .select("monto")
-    .gte("fecha_pago", firstDayOfMonth)
-    .lte("fecha_pago", lastDayOfMonth)
-  
-  if (regionFiltro) {
-    pagosQuery = pagosQuery.eq("cliente_id", supabase.from("clientes").select("id").eq("region", regionFiltro))
-  }
-  
-  const { data: pagosMes } = await pagosQuery
+        // Range for selected month
+        // Note: Use string comparison if stored as ISO string, or Timestamp if stored as timestamp.
+        // Based on `app/dashboard/page.tsx` L45: `.gte("fecha_pago", firstDayOfMonth)`
+        const firstDayOfMonth = new Date(anioParam, mesParam - 1, 1).toISOString()
+        const lastDayOfMonth = new Date(anioParam, mesParam, 0, 23, 59, 59, 999).toISOString()
 
-  const totalPagosMes = pagosMes?.reduce((sum, pago) => sum + Number(pago.monto), 0) || 0
+        // Fetch payments for stats
+        const pagosRef = collection(db, "pagos")
+        // We need payments for the month to sum amount
+        const qPagosMes = query(pagosRef, where("fecha_pago", ">=", firstDayOfMonth), where("fecha_pago", "<=", lastDayOfMonth))
+        const pagosMesSnap = await getDocs(qPagosMes)
 
-  // Calcular clientes morosos según pagos del mes/año seleccionado
-  const clientesMorosos = await getClientesMorososPorMes(mesParam, anioParam)
-  const clientesMorososCount = clientesMorosos.length
+        let totalPagosMes = 0
+        const clientIdsPaidThisMonth = new Set()
 
-  // Obtener total de clientes activos
-  const clientesActivosCount = (clientesResult.count || 0) - clientesMorososCount
+        pagosMesSnap.forEach((doc) => {
+          const p = doc.data()
+          // Filter by region if needed (requires fetching client for each payment or filtering payments by client ids)
+          // Since we have `clientes` loaded, we can check.
+          const cliente = clientes.find(c => c.id === p.cliente_id)
+          if (!regionFiltro || (cliente && cliente.region === regionFiltro)) {
+            totalPagosMes += Number(p.monto)
+            clientIdsPaidThisMonth.add(p.cliente_id)
+          }
+        })
 
-  // Actualizar stats
-  const stats = {
-    clientesCount: clientesResult.count || 0,
-    clientesMorosos: clientesMorososCount,
-    planesCount: planesResult.count || 0,
-    routersCount: routersResult.count || 0,
-    totalPagosMes,
-    porcentajeMorosos: ((clientesResult.count || 0) ? clientesMorososCount / (clientesResult.count || 0) * 100 : 0),
-    clientesActivos: clientesActivosCount,
-    ticketPromedio: (clientesResult.count || 0) > 0 ? totalPagosMes / (clientesResult.count || 1) : 0,
-  }
+        // Morosos Calculation
+        // Active clients who haven't paid in this month (based on logic: getClientesMorososPorMes uses pagos with mes/anio columns)
+        // If filtering by date range of payment matches "paying for that month", we use that.
+        // Ideally, `pagos` has `mes` and `anio` fields representing the COVERED period, independent of `fecha_pago`.
+        // Let's assume we should query `pagos` where `mes` == mesParam and `anio` == anioParam for Morosos check.
+        const qPagosPeriod = query(pagosRef, where("mes", "==", mesParam.toString()), where("anio", "==", anioParam.toString())) // assuming string/number match
+        // Try matching formats. In `api/cortes`, it casts to Number. In Firestore it might be string/number.
+        // We'll fetch all payments for that client if necessary or just this query.
+        // Safe bet: Fetch payments with `mes` and `anio`.
+        // BUT: If `mes` is number in DB, string query might fail.
+        // For now, let's assume we can rely on `clientIdsPaidThisMonth` derived from `fecha_pago` OR fetch specifically for period coverage if `mes` field exists.
+        // Re-reading `dashboard/page.tsx`:
+        // getClientesMorososPorMes uses `.eq("mes", mes).eq("anio", anio)`.
+        // So we should do that.
 
-  // Obtener datos de ingresos por mes del año seleccionado
-  const ingresosPorMes = await Promise.all(
-    Array.from({ length: 12 }, (_, idx) => idx + 1).map(async (m) => {
-      const firstDay = new Date(anioParam, m - 1, 1).toISOString()
-      const lastDay = new Date(anioParam, m, 0, 23, 59, 59, 999).toISOString()
-      let ingresosQuery = supabase
-        .from("pagos")
-        .select("monto, fecha_pago")
-        .gte("fecha_pago", firstDay)
-        .lte("fecha_pago", lastDay)
+        // Since we can't be sure of data types (number vs string) and mixed usage, 
+        // AND we can't easily do OR queries for types.
+        // We will fetch all payments that *could* match (e.g. all payments for valid clients) or just rely on the query if we assume type consistency.
+        // Let's try querying by `mes` (as number and string?) or just assume it matches param type.
+        // `mesParam` is number.
 
-      if (regionFiltro) {
-        ingresosQuery = ingresosQuery.eq("cliente_id", supabase.from("clientes").select("id").eq("region", regionFiltro))
+        let pagosPeriodSnap = await getDocs(query(pagosRef, where("mes", "==", mesParam), where("anio", "==", anioParam)))
+        if (pagosPeriodSnap.empty) {
+          // Try string
+          pagosPeriodSnap = await getDocs(query(pagosRef, where("mes", "==", String(mesParam)), where("anio", "==", String(anioParam))))
+        }
+
+        const clientIdsCovered = new Set()
+        pagosPeriodSnap.forEach(doc => {
+          clientIdsCovered.add(doc.data().cliente_id)
+        })
+
+        const clientesMorosos = clientesActivosDB.filter(c => !clientIdsCovered.has(c.id))
+        const clientesMorososCount = clientesMorosos.length
+
+        // Stats Aggregation
+        const ticketPromedio = clientesCount > 0 ? totalPagosMes / clientesCount : 0
+
+        // Charts Data
+        // 1. Pie (Activos vs Morosos in DB context? Or Active vs Suspended?)
+        // Dashboard used: Activos (calculated as Total - Morosos) vs Morosos
+        const pieDataCalc = [
+          { name: "Activos", value: clientesCount - clientesMorososCount },
+          { name: "Morosos", value: clientesMorososCount },
+        ]
+
+        // 2. Clientes por Region
+        const regionStats = REGIONES.map(r => {
+          const count = clientesActivosDB.filter(c => c.region === r.id).length
+          return { region: r.nombre, cantidad: count }
+        })
+
+        // 3. Clientes por Antena
+        const tiposAntena = [
+          "LiteBeam M5", "LiteBeam M5 AC", "Loco M2", "Loco M5", "Loco M5 AC",
+          "AirGrid", "PowerBeam M5", "PowerBeam M5 AC", "Cable Ethernet",
+          "Fibra Conversor", "Fibra Onu"
+        ]
+        const antenaStats = tiposAntena.map(a => {
+          const count = clientesActivosDB.filter(c => c.antena === a).length
+          return { antena: a, cantidad: count }
+        }).filter(item => item.cantidad > 0)
+
+        // 4. Ingresos Por Mes (Annual)
+        // This requires fetching payments for the whole year.
+        const startYear = new Date(anioParam, 0, 1).toISOString()
+        const endYear = new Date(anioParam, 11, 31, 23, 59, 59).toISOString()
+        const qPagosYear = query(pagosRef, where("fecha_pago", ">=", startYear), where("fecha_pago", "<=", endYear))
+        const pagosYearSnap = await getDocs(qPagosYear)
+
+        const ingresosMap = new Array(12).fill(0)
+        pagosYearSnap.forEach(doc => {
+          const p = doc.data()
+          // Apply region filter if needed
+          const cliente = clientes.find(c => c.id === p.cliente_id)
+          if (!regionFiltro || (cliente && cliente.region === regionFiltro)) {
+            const d = new Date(p.fecha_pago)
+            ingresosMap[d.getMonth()] += Number(p.monto)
+          }
+        })
+
+        const ingresosChartData = ingresosMap.map((monto, idx) => ({
+          mes: MESES[idx],
+          monto
+        }))
+
+        setStats({
+          clientesCount,
+          clientesMorosos: clientesMorososCount,
+          planesCount,
+          routersCount,
+          totalPagosMes,
+          porcentajeMorosos: clientesCount ? (clientesMorososCount / clientesCount) * 100 : 0,
+          clientesActivos: clientesActivosCountDB, // Actual DB Status 'activo'
+          ticketPromedio,
+          totalEsperado
+        })
+        setPieData(pieDataCalc)
+        setClientesPorRegion(regionStats)
+        setClientesPorAntena(antenaStats)
+        setIngresosPorMes(ingresosChartData)
+
+
+      } catch (error) {
+        console.error("Dashboard Fetch Error:", error)
+      } finally {
+        setLoading(false)
       }
+    }
 
-      const { data: pagosMes } = await ingresosQuery
-      const total = pagosMes?.reduce((sum, pago) => sum + Number(pago.monto), 0) || 0
-      return { mes: MESES[m - 1], monto: total }
-    })
-  )
+    fetchData()
+  }, [mesParam, anioParam, regionFiltro, router])
 
-  // Obtener total de clientes activos (de la BD, no solo los que no son morosos)
-  let clientesActivosQuery = supabase
-    .from("clientes")
-    .select("*", { count: "exact", head: true })
-    .eq("estado", "activo")
-  
-  if (regionFiltro) {
-    clientesActivosQuery = clientesActivosQuery.eq("region", regionFiltro)
-  }
-  
-  const { count: totalClientesActivosBDCount, error: errorActivosBD } = await clientesActivosQuery
-  const totalClientesActivosCount = totalClientesActivosBDCount ?? 0
-
-  // Calcular total esperado del mes (suma de precios de planes de clientes activos)
-  let clientesConPlanesQuery = supabase
-    .from("clientes")
-    .select(`
-      id,
-      plan,
-      planes!inner(
-        id,
-        precio
-      )
-    `)
-    .eq("estado", "activo")
-    .not("plan", "is", null)
-  
-  if (regionFiltro) {
-    clientesConPlanesQuery = clientesConPlanesQuery.eq("region", regionFiltro)
-  }
-  
-  const { data: clientesConPlanes, error: errorClientesConPlanes } = await clientesConPlanesQuery
-
-  let totalEsperado = 0
-  if (clientesConPlanes && !errorClientesConPlanes) {
-    totalEsperado = clientesConPlanes.reduce((sum: number, cliente: any) => {
-      const precio = cliente.planes?.precio
-      return sum + (precio ? Number(precio) : 0)
-    }, 0)
+  const handleFilter = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    const formData = new FormData(e.currentTarget)
+    const params = new URLSearchParams(searchParams)
+    params.set("mes", formData.get("mes") as string)
+    params.set("anio", formData.get("anio") as string)
+    params.set("region", formData.get("region") as string)
+    router.push(`?${params.toString()}`)
   }
 
-  // Datos para gráfica de pastel
-  const pieData = [
-    { name: "Activos", value: stats.clientesActivos },
-    { name: "Morosos", value: stats.clientesMorosos },
-  ]
-  const pieColors = ["#22c55e", "#facc15"]
-
-  // Obtener clientes por región
-  const clientesPorRegion: { region: string, cantidad: number }[] = await Promise.all(
-    REGIONES.map(async (region) => {
-      const { data: clientesRegion } = await supabase
-        .from("clientes")
-        .select("id")
-        .eq("estado", "activo")
-        .eq("region", region.id)
-      return { region: region.nombre, cantidad: clientesRegion?.length || 0 }
-    })
-  )
-
-  // Obtener distribución de clientes por tipo de antena
-  const tiposAntena = [
-    "LiteBeam M5", "LiteBeam M5 AC", "Loco M2", "Loco M5", "Loco M5 AC",
-    "AirGrid", "PowerBeam M5", "PowerBeam M5 AC", "Cable Ethernet", 
-    "Fibra Conversor", "Fibra Onu"
-  ]
-  
-  const clientesPorAntena: { antena: string, cantidad: number }[] = await Promise.all(
-    tiposAntena.map(async (antena) => {
-      const { data: clientesAntena } = await supabase
-        .from("clientes")
-        .select("id")
-        .eq("estado", "activo")
-        .eq("antena", antena)
-      return { antena, cantidad: clientesAntena?.length || 0 }
-    })
-  )
-  
-  // Filtrar solo antenas que tienen clientes
-  const antenasConClientes = clientesPorAntena.filter(item => item.cantidad > 0)
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex justify-center items-center h-screen">
+          <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      </DashboardLayout>
+    )
+  }
 
   return (
     <DashboardLayout>
@@ -255,7 +277,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <h1 className="text-3xl font-bold">Dashboard</h1>
 
         {/* Filtros de mes y año */}
-        <form className="flex gap-4 mb-6 items-end" method="get">
+        <form className="flex gap-4 mb-6 items-end" onSubmit={handleFilter}>
           <div>
             <label className="block text-sm mb-1">Mes</label>
             <select name="mes" defaultValue={String(mesParam)} className="border rounded px-2 py-2 text-[#687373]">
@@ -304,7 +326,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               <Users className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{totalClientesActivosCount}</div>
+              <div className="text-2xl font-bold">{stats.clientesActivos}</div>
               <p className="text-xs text-muted-foreground">Clientes con estado activo en la base de datos</p>
             </CardContent>
           </Card>
@@ -327,7 +349,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatCurrency(stats.totalPagosMes)}</div>
-              <p className="text-xs text-muted-foreground">{MESES[mesParam-1]} {anioParam}</p>
+              <p className="text-xs text-muted-foreground">{MESES[mesParam - 1]} {anioParam}</p>
             </CardContent>
           </Card>
 
@@ -360,7 +382,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatCurrency(stats.ticketPromedio)}</div>
-              <p className="text-xs text-muted-foreground">Ingreso promedio por cliente ({MESES[mesParam-1]} {anioParam})</p>
+              <p className="text-xs text-muted-foreground">Ingreso promedio por cliente ({MESES[mesParam - 1]} {anioParam})</p>
             </CardContent>
           </Card>
 
@@ -370,8 +392,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               <CreditCard className="h-4 w-4 text-green-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{formatCurrency(totalEsperado)}</div>
-              <p className="text-xs text-muted-foreground">Ingreso esperado del mes ({MESES[mesParam-1]} {anioParam})</p>
+              <div className="text-2xl font-bold">{formatCurrency(stats.totalEsperado)}</div>
+              <p className="text-xs text-muted-foreground">Ingreso esperado del mes ({MESES[mesParam - 1]} {anioParam})</p>
             </CardContent>
           </Card>
         </div>
@@ -395,7 +417,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             </CardHeader>
             <CardContent>
               <div className="w-full h-72">
-                <DashboardClientesPorAntenaChart data={antenasConClientes} />
+                <DashboardClientesPorAntenaChart data={clientesPorAntena} />
               </div>
             </CardContent>
           </Card>

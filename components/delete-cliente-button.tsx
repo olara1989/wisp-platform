@@ -28,14 +28,10 @@ export function DeleteClienteButton({ clienteId }: DeleteClienteButtonProps) {
   const handleDelete = async () => {
     try {
       setIsDeleting(true)
-      const supabase = createClientSupabaseClient()
-      
-      const { error } = await supabase
-        .from("clientes")
-        .delete()
-        .eq("id", clienteId)
+      const { deleteDoc, doc } = await import("firebase/firestore")
+      const { db } = await import("@/lib/firebase")
 
-      if (error) throw error
+      await deleteDoc(doc(db, "clientes", clienteId))
 
       router.refresh()
     } catch (error) {

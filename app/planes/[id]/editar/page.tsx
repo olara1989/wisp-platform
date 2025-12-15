@@ -12,7 +12,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/ui/use-toast"
-import { createClientSupabaseClient } from "@/lib/supabase"
+import { db } from "@/lib/firebase"
+import { collection, updateDoc, getDocs, getDoc, deleteDoc, doc, query, where, limit } from "firebase/firestore"
 import { ArrowLeft, Loader2, Trash2 } from "lucide-react"
 import {
   AlertDialog,
@@ -25,7 +26,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { canDeletePlan } from "@/lib/api-utils"
 
 /**
  * Página para editar un plan existente
@@ -54,16 +54,14 @@ export default function EditarPlanPage({ params }: { params: { id: string } }) {
   useEffect(() => {
     const fetchPlan = async () => {
       try {
-        const supabase = createClientSupabaseClient()
-        const { data, error } = await supabase.from("planes").select("*").eq("id", params.id).single()
+        const docRef = doc(db, "planes", params.id);
+        const docSnap = await getDoc(docRef);
 
-        if (error) {
-          throw error
-        }
-
-        if (!data) {
+        if (!docSnap.exists()) {
           throw new Error("Plan no encontrado")
         }
+
+        const data = docSnap.data();
 
         // Convertir valores numéricos a string para los inputs
         setFormData({
@@ -108,8 +106,6 @@ export default function EditarPlanPage({ params }: { params: { id: string } }) {
     setIsSaving(true)
 
     try {
-      const supabase = createClientSupabaseClient()
-
       // Convertir valores de string a números para guardar en la base de datos
       const planData = {
         nombre: formData.nombre,
@@ -122,16 +118,14 @@ export default function EditarPlanPage({ params }: { params: { id: string } }) {
         descripcion: formData.descripcion,
       }
 
-      const { error } = await supabase.from("planes").update(planData).eq("id", params.id)
-
-      if (error) {
-        console.error("Error al actualizar plan:", error)
-        throw error
-      }
+      await updateDoc(doc(db, "planes", params.id), planData)
 
       toast({
         title: "Plan actualizado",
         description: "El plan ha sido actualizado exitosamente",
+        // Force refresh or optimistic update?
+        // Router replace usually fetches data on server components, but this is a client component for list? 
+        // Actually list is client component now, so it will re-fetch on mount.
       })
 
       // Forzar la navegación con replace para asegurar que se recarga la página
@@ -156,15 +150,30 @@ export default function EditarPlanPage({ params }: { params: { id: string } }) {
     setIsDeleting(true)
 
     try {
-      const supabase = createClientSupabaseClient()
+      // Verificar si hay facturaciones que usan este plan
+      // Query facturacion collection where plan_id == params.id
+      // Assuming facturacion collection exists.
+      const q = query(collection(db, "facturacion"), where("plan_id", "==", params.id), limit(1))
+      const snap = await getDocs(q)
 
-      // Verificar si el plan puede ser eliminado
-      const { canDelete, message } = await canDeletePlan(supabase, params.id)
+      let canDelete = true;
+      let message = "";
+
+      if (!snap.empty) {
+        canDelete = false
+        message = "No se puede eliminar el plan porque está siendo utilizado en facturaciones"
+      }
+
+      // Also check clients usage?
+      // Original code checked 'facturacion'. Is that enough? 
+      // Typically plans are linked to clients directly too.
+      // Let's check clientes too to be safe/consistent with logic if 'facturacion' check was intended for that.
+      // But adhering to original logic which called `canDeletePlan` that only checked `facturacion`.
 
       if (!canDelete) {
         toast({
           title: "No se puede eliminar",
-          description: message || "Este plan no puede ser eliminado porque está en uso",
+          description: message,
           variant: "destructive",
         })
         setIsDeleting(false)
@@ -172,12 +181,7 @@ export default function EditarPlanPage({ params }: { params: { id: string } }) {
       }
 
       // Eliminar el plan
-      const { error } = await supabase.from("planes").delete().eq("id", params.id)
-
-      if (error) {
-        console.error("Error al eliminar plan:", error)
-        throw error
-      }
+      await deleteDoc(doc(db, "planes", params.id))
 
       toast({
         title: "Plan eliminado",

@@ -1,26 +1,54 @@
+"use client"
+
 import Link from "next/link"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { createServerSupabaseClient } from "@/lib/supabase"
-import { Plus } from "lucide-react"
+import { Plus, Loader2 } from "lucide-react"
+import { useEffect, useState } from "react"
+import { db } from "@/lib/firebase"
+import { collection, getDocs, orderBy, query } from "firebase/firestore"
 
-async function getRouters() {
-  const supabase = createServerSupabaseClient()
-
-  const { data, error } = await supabase.from("routers").select("*").order("nombre")
-
-  if (error) {
-    console.error("Error al obtener routers:", error)
-    return []
-  }
-
-  return data || []
+interface Router {
+  id: string
+  nombre: string
+  ip: string
+  puerto_api: number
+  modo_control: string
 }
 
-export default async function RoutersPage() {
-  const routers = await getRouters()
+export default function RoutersPage() {
+  const [routers, setRouters] = useState<Router[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchRouters = async () => {
+      try {
+        const q = query(collection(db, "routers"), orderBy("nombre"))
+        const querySnapshot = await getDocs(q)
+        const routersData: Router[] = []
+        querySnapshot.forEach((doc) => {
+          routersData.push({ id: doc.id, ...doc.data() } as Router)
+        })
+        setRouters(routersData)
+      } catch (error) {
+        console.error("Error al obtener routers:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchRouters()
+  }, [])
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex justify-center items-center h-screen"><Loader2 className="animate-spin h-8 w-8" /></div>
+      </DashboardLayout>
+    )
+  }
 
   return (
     <DashboardLayout>

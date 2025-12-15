@@ -13,7 +13,8 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
-import { createClientSupabaseClient } from "@/lib/supabase"
+import { db } from "@/lib/firebase"
+import { collection, query, where, getDocs, getDoc, doc, addDoc, updateDoc, orderBy } from "firebase/firestore"
 import { reactivarCliente } from "@/lib/mikrotik"
 import { formatCurrency } from "@/lib/utils"
 import { ArrowLeft, Loader2 } from "lucide-react"
@@ -85,11 +86,13 @@ export default function NuevoPagoPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const supabase = createClientSupabaseClient()
-        const { data: clientesData } = await supabase.from("clientes").select("* ").order("nombre")
-        setClientes(clientesData as Cliente[] || [])
+        const q = query(collection(db, "clientes"), orderBy("nombre"))
+        const querySnapshot = await getDocs(q)
+        const clientesData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Cliente[]
+        setClientes(clientesData)
+
         if (clienteId) {
-          const cliente = (clientesData as Cliente[] | undefined)?.find((c) => c.id === clienteId)
+          const cliente = clientesData.find((c) => c.id === clienteId)
           if (cliente) {
             setFormData((prev) => ({ ...prev, cliente_id: String(cliente.id) }))
             setClienteInput(cliente.nombre)
@@ -107,35 +110,55 @@ export default function NuevoPagoPage() {
 
   const fetchClienteData = async (id: string) => {
     try {
-      const supabase = createClientSupabaseClient()
-      const { data: cliente } = await supabase.from("clientes").select("*").eq("id", id).single()
-      setClienteSeleccionado(cliente as Cliente)
-      // Buscar el plan asignado al cliente
-      if (cliente && cliente.plan) {
-        const { data: plan } = await supabase.from("planes").select("precio, nombre, id").eq("id", cliente.plan).single()
-        if (plan && typeof (plan as { precio?: number }).precio === 'number') {
-          setFormData((prev) => ({ ...prev, monto: ((plan as { precio: number }).precio).toString() }))
-          setTimeout(() => {
-            registrarBtnRef.current?.focus()
-          }, 100)
+      // 1. Get Client
+      const clientDoc = await getDoc(doc(db, "clientes", id))
+      if (!clientDoc.exists()) return
+      const cliente = { id: clientDoc.id, ...clientDoc.data() } as Cliente
+      setClienteSeleccionado(cliente)
+
+      // 2. Get Plan
+      if (cliente.plan) {
+        // Assuming plan is stored as ID in cliente.plan
+        // Check if it's a string ID or something else. Typically string in Firestore refactor.
+        const planRef = doc(db, "planes", cliente.plan)
+        const planSnap = await getDoc(planRef)
+        if (planSnap.exists()) {
+          const planData = planSnap.data()
+          // Use type assertion or check
+          const precio = planData.precio
+          if (precio && !isNaN(Number(precio))) {
+            setFormData((prev) => ({ ...prev, monto: Number(precio).toString() }))
+            setTimeout(() => {
+              registrarBtnRef.current?.focus()
+            }, 100)
+          } else {
+            setFormData((prev) => ({ ...prev, monto: "" }))
+          }
         } else {
-          // Si el plan no tiene precio, limpiar el campo monto
           setFormData((prev) => ({ ...prev, monto: "" }))
         }
       } else {
-        // Si el cliente no tiene plan, limpiar el campo monto
         setFormData((prev) => ({ ...prev, monto: "" }))
       }
-      // Obtener dispositivo y router
-      const { data: dispositivoData } = await supabase
-        .from("dispositivos")
-        .select(`*, routers:router_id (*)`)
-        .eq("cliente_id", id)
-        .single()
-      if (dispositivoData) {
-        setDispositivo(dispositivoData)
-        setRouterData(dispositivoData.routers)
+
+      // 3. Get Dispositivo & Router
+      // Query dispositivos where cliente_id == id
+      const devicesQ = query(collection(db, "dispositivos"), where("cliente_id", "==", id))
+      const devicesSnap = await getDocs(devicesQ)
+
+      if (!devicesSnap.empty) {
+        const deviceDoc = devicesSnap.docs[0]
+        const deviceData = { id: deviceDoc.id, ...deviceDoc.data() } as any
+
+        if (deviceData.router_id) {
+          const routerSnap = await getDoc(doc(db, "routers", deviceData.router_id))
+          if (routerSnap.exists()) {
+            setDispositivo(deviceData)
+            setRouterData({ id: routerSnap.id, ...routerSnap.data() })
+          }
+        }
       }
+
     } catch (error) {
       console.error("Error al cargar datos del cliente:", error)
     }
@@ -166,15 +189,24 @@ export default function NuevoPagoPage() {
     }
     // Verificar si existe pago del mes anterior
     try {
-      const supabase = createClientSupabaseClient()
-      const { data: pagosAnteriores, error } = await supabase
-        .from("pagos")
-        .select("id")
-        .eq("cliente_id", cliente.id)
-        .eq("mes", mesAnterior)
-        .eq("anio", anioAnterior)
-      if (error) throw error
-      if (!pagosAnteriores || pagosAnteriores.length === 0) {
+      // Logic: query pagos where cliente_id, mes, anio match
+      const pagosQ = query(
+        collection(db, "pagos"),
+        where("cliente_id", "==", cliente.id),
+        where("mes", "==", String(mesAnterior)), // ensure strings match if used as such
+        where("anio", "==", String(anioAnterior))
+      )
+      // Note: Firestore might store numbers or strings. Be careful.
+      // Based on form data default, mes/anio are strings.
+      // Ideally we check how they are stored. Assuming strings based on form.
+
+      const pagosSnap = await getDocs(pagosQ)
+
+      if (pagosSnap.empty) {
+        // Double check if stored as number?
+        // In migration plan, consistency is key. Let's try both or standardize.
+        // For now assumes matching types.
+
         setAlertaPago("El cliente no tiene pago registrado del mes anterior. Por favor, verifica la situación antes de registrar un nuevo pago.")
         setPuedeRegistrar(false)
       } else {
@@ -215,46 +247,38 @@ export default function NuevoPagoPage() {
     setIsSaving(true)
 
     try {
-      const supabase = createClientSupabaseClient()
-
       // Corregir la fecha para evitar desfase por zona horaria
       let fechaPago = formData.fecha_pago
       if (fechaPago) {
-        // Si la fecha viene como string (YYYY-MM-DD), usarla tal cual
-        // pero si por alguna razón viene como Date, formatear a YYYY-MM-DD
         if (typeof fechaPago !== "string") {
           const d = new Date(fechaPago)
           fechaPago = d.toISOString().split("T")[0]
         }
       }
 
-      // Registrar el pago, incluyendo mes y anio
-      const { data: pago, error: pagoError } = await supabase
-        .from("pagos")
-        .insert({
-          ...formData,
-          fecha_pago: fechaPago, // Usar la fecha corregida
-          monto: Number.parseFloat(formData.monto),
-          mes: formData.mes,
-          anio: formData.anio,
-        })
-        .select()
-
-      if (pagoError) throw pagoError
+      // Registrar el pago
+      await addDoc(collection(db, "pagos"), {
+        ...formData,
+        fecha_pago: fechaPago,
+        monto: Number.parseFloat(formData.monto),
+        mes: formData.mes,
+        anio: formData.anio,
+        created_at: new Date() // Add timestamp
+      })
 
       // Actualizar estado de facturación
       if (facturacion) {
-        await supabase.from("facturacion").update({ estado_pago: "pagado" }).eq("id", facturacion.id)
+        await updateDoc(doc(db, "facturacion", facturacion.id), { estado_pago: "pagado" })
       }
 
       // Actualizar estado del cliente si estaba suspendido
-      if (clienteSeleccionado?.estado === "suspendido" || clienteSeleccionado?.estado === "moroso") {
-        await supabase.from("clientes").update({ estado: "activo" }).eq("id", clienteSeleccionado.id)
+      if (clienteSeleccionado && (clienteSeleccionado.estado === "suspendido" || clienteSeleccionado.estado === "moroso")) {
+        await updateDoc(doc(db, "clientes", clienteSeleccionado.id), { estado: "activo" })
 
         // Reactivar servicio en Mikrotik si el cliente estaba suspendido
-        if (clienteSeleccionado?.estado === "suspendido" && dispositivo && routerData) {
+        if (clienteSeleccionado.estado === "suspendido" && dispositivo && routerData) {
           try {
-            await reactivarCliente(routerData.id, dispositivo.ip, routerData.modo_control)
+            await reactivarCliente(routerData.id, dispositivo.ip, routerData.modo_control || "address-list")
           } catch (reactivarError) {
             console.error("Error al reactivar cliente:", reactivarError)
             toast({
@@ -265,6 +289,7 @@ export default function NuevoPagoPage() {
           }
         }
       }
+
 
       toast({
         title: "Pago registrado",

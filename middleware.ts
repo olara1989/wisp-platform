@@ -16,49 +16,13 @@ export async function middleware(req: NextRequest) {
     pathname === "/test-connection" ||
     pathname === "/debug"
   ) {
-    console.log(`[MIDDLEWARE] Skipping middleware for: ${pathname}`)
     return res
   }
 
-  // Si es la ruta raíz, redirigir a login
-  if (pathname === "/") {
-    console.log(`[MIDDLEWARE] Redirecting root to login`)
-    return NextResponse.redirect(new URL("/login", req.url))
-  }
+  // Dejamos que la protección de rutas se maneje en el cliente (AuthProvider)
+  // ya que no tenemos Firebase Admin SDK para verificar cookies en el servidor fácilmente.
 
-  // Si es login, permitir acceso
-  if (pathname === "/login") {
-    console.log(`[MIDDLEWARE] Allowing access to login`)
-    return res
-  }
-
-  try {
-    // Crear cliente de Supabase para el middleware
-    const supabase = createMiddlewareClient({ req, res })
-
-    // Verificar si el usuario está autenticado
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
-
-    console.log(`[MIDDLEWARE] Session check for ${pathname}:`, {
-      hasSession: !!session,
-      userEmail: session?.user?.email,
-    })
-
-    // Si no hay sesión, redirigir a login
-    if (!session) {
-      console.log(`[MIDDLEWARE] No session found for ${pathname}, redirecting to login`)
-      return NextResponse.redirect(new URL("/login", req.url))
-    }
-
-    console.log(`[MIDDLEWARE] Session found for ${pathname}, allowing access`)
-    return res
-  } catch (error) {
-    console.error(`[MIDDLEWARE] Error for ${pathname}:`, error)
-    // En caso de error, permitir acceso para evitar loops
-    return res
-  }
+  return res
 }
 
 export const config = {

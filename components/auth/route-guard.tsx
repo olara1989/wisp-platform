@@ -92,7 +92,7 @@ export function RouteGuard({ children }: RouteGuardProps) {
       console.log("[ROUTE GUARD] Waiting for auth to load (no user yet).", { isLoading, user: !!user, userRole })
       return
     }
-    
+
     // Si tenemos usuario pero no rol todavía, esperar un momento para que se cargue
     // pero no bloquear si ya pasó suficiente tiempo
     if (isLoading && user && userRole === null) {
@@ -125,7 +125,7 @@ export function RouteGuard({ children }: RouteGuardProps) {
       console.log("[ROUTE GUARD] User authenticated, role loading in progress - allowing optimistic render")
       return // Permitir mostrar contenido mientras se carga el rol
     }
-    
+
     // Si el usuario está autenticado pero no tiene un rol válido (userRole es null) Y ya no estamos cargando
     if (user && userRole === null && !isLoading) {
       console.log("[ROUTE GUARD] User has no valid role after loading, redirecting to login")

@@ -1,20 +1,25 @@
+"use client"
+
 import Link from "next/link"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { createServerSupabaseClient } from "@/lib/supabase"
 import { formatDate, getEstadoColor } from "@/lib/utils"
 import { Plus, Search, Filter, Eye, Pencil, Clock } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { cache } from "react"
 import { ClientesFilterForm } from "@/components/clientes-filter-form"
 import { REGIONES } from "@/lib/types/regiones"
 import { TableStatusSelector } from "@/components/ui/table-status-selector"
 import { DeleteClienteButton } from "@/components/delete-cliente-button"
 import { ClientesPagination } from "@/components/clientes-pagination"
+import { useEffect, useState } from "react"
+import { useSearchParams } from "next/navigation"
+import { db } from "@/lib/firebase"
+import { collection, query, where, getDocs, orderBy, limit, startAfter, getCountFromServer, DocumentData } from "firebase/firestore"
+import { Loader2 } from "lucide-react"
 
 interface Cliente {
   id: string
@@ -35,109 +40,115 @@ interface Cliente {
   } | null
 }
 
-const getClientes = cache(async (
-  estado?: string, 
-  buscar?: string, 
-  regiones?: string | string[],
-  page: number = 1,
-  pageSize: number = 20
-): Promise<{ data: Cliente[], total: number }> => {
-  try {
-    const supabase = createServerSupabaseClient()
+export default function ClientesPage() {
+  const searchParams = useSearchParams()
+  const [clientes, setClientes] = useState<Cliente[]>([])
+  const [loading, setLoading] = useState(true)
+  const [total, setTotal] = useState(0)
+  const [uniqueRegions, setUniqueRegions] = useState<string[]>([])
 
-    // Primero obtenemos el total de registros
-    let countQuery = supabase
-      .from("clientes")
-      .select("*", { count: "exact", head: true })
-
-    // Aplicamos los mismos filtros al conteo
-    if (estado && estado !== "todos") {
-      countQuery = countQuery.eq("estado", estado.toLowerCase())
-    }
-    if (buscar) {
-      countQuery = countQuery.or(`nombre.ilike.%${buscar}%,email.ilike.%${buscar}%,telefono.ilike.%${buscar}%`)
-    }
-    if (regiones && regiones.length > 0) {
-      const regionArray = Array.isArray(regiones) ? regiones : [regiones]
-      countQuery = countQuery.in("region", regionArray)
-    }
-
-    const { count } = await countQuery
-
-    // Luego obtenemos los datos paginados
-    let query = supabase
-      .from("clientes")
-      .select(`
-        *,
-        planes:plan (
-          nombre
-        )
-      `)
-      .order("ip", { ascending: true })
-      .range((page - 1) * pageSize, page * pageSize - 1)
-
-    if (estado && estado !== "todos") {
-      query = query.eq("estado", estado.toLowerCase())
-    }
-    if (buscar) {
-      query = query.or(`nombre.ilike.%${buscar}%,email.ilike.%${buscar}%,telefono.ilike.%${buscar}%`)
-    }
-    if (regiones && regiones.length > 0) {
-      const regionArray = Array.isArray(regiones) ? regiones : [regiones]
-      query = query.in("region", regionArray)
-    }
-
-    const { data, error } = await query.returns<Cliente[]>()
-
-    if (error) {
-      console.error("Error al obtener clientes:", error)
-      return { data: [], total: 0 }
-    }
-
-    return { data: data || [], total: count || 0 }
-  } catch (error) {
-    console.error("Error al obtener clientes:", error)
-    return { data: [], total: 0 }
-  }
-})
-
-// Nueva función cacheada para obtener regiones únicas
-const getUniqueRegions = cache(async (): Promise<string[]> => {
-  try {
-    const supabase = createServerSupabaseClient()
-    const { data, error } = await supabase
-      .from("clientes")
-      .select("region")
-      .not("region", "is", null)
-      .order("region")
-
-    if (error) {
-      console.error("Error al obtener regiones:", error)
-      return []
-    }
-
-    // Obtener regiones únicas usando Set
-    const uniqueRegions = Array.from(new Set(data.map(item => item.region).filter(Boolean)))
-    return uniqueRegions as string[]
-  } catch (error) {
-    console.error("Error al obtener regiones:", error)
-    return []
-  }
-})
-
-export default async function ClientesPage({
-  searchParams,
-}: {
-  searchParams: { [key: string]: string | string[] | undefined }
-}) {
-  const estado = searchParams.estado as string
-  const buscar = searchParams.buscar as string
-  const regiones = searchParams.regiones
-  const page = Number(searchParams.page) || 1
+  const estado = searchParams.get("estado")
+  const buscar = searchParams.get("buscar")
+  const regiones = searchParams.getAll("regiones")
+  const page = Number(searchParams.get("page")) || 1
   const pageSize = 20
 
-  const { data: clientes, total } = await getClientes(estado, buscar, regiones, page, pageSize)
-  const uniqueRegions = await getUniqueRegions()
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true)
+      try {
+        console.log("[CLIENTES] Starting fetch...")
+
+        // 1. Fetch Planes for manual join
+        const planesSnapshot = await getDocs(collection(db, "planes"))
+        const planesMap = new Map<string, string>()
+        planesSnapshot.forEach(doc => {
+          const data = doc.data()
+          planesMap.set(doc.id, data.nombre)
+        })
+        console.log("[CLIENTES] Loaded", planesMap.size, "planes")
+
+        // 2. Build Query - simplified without orderBy to avoid index issues
+        const clientesRef = collection(db, "clientes")
+        const constraints = []
+
+        // Apply filters
+        if (estado && estado !== "todos") {
+          constraints.push(where("estado", "==", estado.toLowerCase()))
+        }
+
+        if (regiones && regiones.length > 0) {
+          const regionArray = Array.isArray(regiones) ? regiones : [regiones]
+          // 'in' query supports up to 10
+          if (regionArray.length > 0 && regionArray.length <= 10) {
+            constraints.push(where("region", "in", regionArray))
+          }
+        }
+
+        // Build query
+        let finalQuery = constraints.length > 0
+          ? query(clientesRef, ...constraints)
+          : query(clientesRef)
+
+        console.log("[CLIENTES] Executing query with", constraints.length, "constraints")
+        const snapshot = await getDocs(finalQuery)
+        console.log("[CLIENTES] Got", snapshot.docs.length, "documents")
+
+        // Map data
+        let results = snapshot.docs.map(doc => {
+          const data = doc.data() as any
+          return {
+            ...data,
+            id: doc.id,
+            planes: {
+              nombre: data.plan ? (planesMap.get(data.plan) || "Desconocido") : "Sin Plan"
+            }
+          } as Cliente
+        })
+
+        // Client-side filtering for 'buscar'
+        if (buscar) {
+          const searchLower = buscar.toLowerCase()
+          results = results.filter(c =>
+            c.nombre?.toLowerCase().includes(searchLower) ||
+            c.email?.toLowerCase().includes(searchLower) ||
+            c.telefono?.includes(searchLower) ||
+            c.ip?.includes(searchLower)
+          )
+        }
+
+        // Sort by IP client-side (since we can't use orderBy reliably)
+        results.sort((a, b) => {
+          const ipA = parseInt(a.ip) || 0
+          const ipB = parseInt(b.ip) || 0
+          return ipA - ipB
+        })
+
+        setTotal(results.length)
+
+        // Manual Pagination (Slice)
+        const startIndex = (page - 1) * pageSize
+        const endIndex = startIndex + pageSize
+        const paginatedResults = results.slice(startIndex, endIndex)
+
+        console.log("[CLIENTES] Showing", paginatedResults.length, "of", results.length, "total")
+        setClientes(paginatedResults)
+        console.log("[CLIENTES] State updated, clientes array length:", paginatedResults.length)
+
+        // Use REGIONES constant instead of scanning DB
+        setUniqueRegions(REGIONES.map(r => r.nombre))
+
+      } catch (error) {
+        console.error("[CLIENTES] Error fetching clientes:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [estado, buscar, JSON.stringify(regiones), page]) // Removed pageSize and searchParams to avoid infinite loops
+
+  console.log("[CLIENTES] Render - loading:", loading, "clientes count:", clientes.length)
 
   const totalPages = Math.ceil(total / pageSize)
 
@@ -177,7 +188,13 @@ export default async function ClientesPage({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {clientes.length === 0 ? (
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="h-24 text-center">
+                    <div className="flex justify-center"><Loader2 className="animate-spin" /></div>
+                  </TableCell>
+                </TableRow>
+              ) : clientes.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center py-8">
                     No se encontraron clientes con los filtros seleccionados

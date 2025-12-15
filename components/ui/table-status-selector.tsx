@@ -27,13 +27,11 @@ export function TableStatusSelector({ clienteId, estadoActual, onStatusChange }:
   const handleStatusChange = async (newStatus: string) => {
     setIsLoading(true)
     try {
-      const supabase = createClientSupabaseClient()
-      const { error } = await supabase
-        .from("clientes")
-        .update({ estado: newStatus })
-        .eq("id", clienteId)
+      const { updateDoc, doc } = await import("firebase/firestore")
+      const { db } = await import("@/lib/firebase")
 
-      if (error) throw error
+      const clienteRef = doc(db, "clientes", clienteId)
+      await updateDoc(clienteRef, { estado: newStatus })
 
       setEstado(newStatus)
       if (onStatusChange) {
