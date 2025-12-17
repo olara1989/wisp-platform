@@ -1,14 +1,18 @@
+"use client"
+
 import Link from "next/link"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { createServerSupabaseClient } from "@/lib/supabase"
 import { formatCurrency, formatDate } from "@/lib/utils"
-import { Plus, Search, Filter } from "lucide-react"
+import { Plus, Search, Filter, Loader2 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { cache } from "react"
+import { useEffect, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { db } from "@/lib/firebase"
+import { collection, getDocs, orderBy, query, limit, where, getDoc, doc } from "firebase/firestore"
 
 const MESES = [
   "",
@@ -26,82 +30,146 @@ const MESES = [
   "Diciembre",
 ];
 
-// Usar cache para evitar múltiples llamadas a la base de datos
-const getPagos = cache(async (metodo?: string, buscar?: string, desde?: string, hasta?: string, page: number = 1, pageSize: number = 20) => {
-  try {
-    const supabase = createServerSupabaseClient()
+interface Pago {
+  id: string
+  cliente_id: string
+  fecha_pago: any
+  monto: number
+  metodo: string
+  mes: string | number // Assuming string/number mixed in migration
+  clientes?: any
+}
 
-    let query = supabase
-      .from("pagos")
-      .select(`
-        *,
-        clientes:cliente_id (
-          id,
-          nombre,
-          telefono,
-          email
-        )
-      `)
-      .order("fecha_pago", { ascending: false })
+export default function PagosPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
 
-    // Filtrar por método de pago
-    if (metodo && metodo !== "todos") {
-      query = query.eq("metodo", metodo)
-    }
+  // Filter Params
+  const metodoParam = searchParams.get("metodo") || "todos"
+  const buscarParam = searchParams.get("buscar") || ""
+  const desdeParam = searchParams.get("desde") || ""
+  const hastaParam = searchParams.get("hasta") || ""
+  const pageParam = Number(searchParams.get("page")) || 1
 
-    // Filtrar por fecha desde
-    if (desde) {
-      query = query.gte("fecha_pago", desde)
-    }
+  const [pagos, setPagos] = useState<Pago[]>([])
+  const [loading, setLoading] = useState(true)
+  const [totalMonto, setTotalMonto] = useState(0)
 
-    // Filtrar por fecha hasta
-    if (hasta) {
-      query = query.lte("fecha_pago", hasta)
-    }
-
-    // Buscar por referencia o notas
-    if (buscar) {
-      query = query.or(`referencia.ilike.%${buscar}%,notas.ilike.%${buscar}%`)
-    }
-
-    // Obtener el total de pagos para paginación
-    const countQuery = supabase
-      .from("pagos")
-      .select("id", { count: "exact", head: true })
-    if (metodo && metodo !== "todos") countQuery.eq("metodo", metodo)
-    if (desde) countQuery.gte("fecha_pago", desde)
-    if (hasta) countQuery.lte("fecha_pago", hasta)
-    if (buscar) countQuery.or(`referencia.ilike.%${buscar}%,notas.ilike.%${buscar}%`)
-    const { count } = await countQuery
-
-    // Paginación
-    query = query.range((page - 1) * pageSize, page * pageSize - 1)
-
-    const { data, error } = await query
-
-    if (error) {
-      console.error("Error al obtener pagos:", error)
-      return { data: [], total: 0 }
-    }
-    return { data: data || [], total: count || 0 }
-  } catch (error) {
-    console.error("Error al obtener pagos:", error)
-    return { data: [], total: 0 }
-  }
-})
-
-export default async function PagosPage({
-  searchParams,
-}: {
-  searchParams: { metodo?: string; buscar?: string; desde?: string; hasta?: string; page?: string }
-}) {
-  const page = Number(searchParams.page) || 1
+  // Pagination (Client Side for simplicity with manual joins/filters)
   const pageSize = 20
-  const { data: pagos, total } = await getPagos(searchParams.metodo, searchParams.buscar, searchParams.desde, searchParams.hasta, page, pageSize)
-  const totalPages = Math.ceil(total / pageSize)
-  // Calcular la suma total de los montos filtrados
-  const { data: allPagos } = await getPagos(searchParams.metodo, searchParams.buscar, searchParams.desde, searchParams.hasta, 1, 10000)
-  const totalMonto = (allPagos || []).reduce((sum: number, pago: any) => sum + (Number(pago.monto) || 0), 0)
+  const [totalPages, setTotalPages] = useState(0)
+  const [paginatedPagos, setPaginatedPagos] = useState<Pago[]>([])
+
+  useEffect(() => {
+    const fetchPagos = async () => {
+      setLoading(true)
+      try {
+        let q = query(collection(db, "pagos"), orderBy("fecha_pago", "desc"))
+
+        // Firestore doesn't allow multiple OrderBy with Inequality filters on different fields easily without index.
+        // We will fetch all and filter in memory if dataset is small (< few thousands).
+        // If large, we need compound indexes. Assuming moderate size for migration.
+
+        // Optimized Query for Date Range if provided
+        if (desdeParam) {
+          q = query(q, where("fecha_pago", ">=", desdeParam))
+        }
+        if (hastaParam) {
+          q = query(q, where("fecha_pago", "<=", hastaParam))
+        }
+        if (metodoParam && metodoParam !== "todos") {
+          q = query(q, where("metodo", "==", metodoParam))
+        }
+
+        const snapshot = await getDocs(q)
+
+        // Process and Manual Join
+        // We need to fetch clients for display.
+        // Optimize: Collect unique client IDs and fetch them in parallel or one by one.
+        // Or fetch all clients once.
+
+        // Just map first
+        let rawPagos = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Pago))
+
+        // Memory Filter for Search (reference or notes)
+        if (buscarParam) {
+          const term = buscarParam.toLowerCase()
+          rawPagos = rawPagos.filter((p: any) =>
+            (p.referencia && p.referencia.toLowerCase().includes(term)) ||
+            (p.notas && p.notas.toLowerCase().includes(term))
+          )
+        }
+
+        // Calculate Total Monto BEFORE Pagination
+        const total = rawPagos.reduce((sum, p) => sum + (Number(p.monto) || 0), 0)
+        setTotalMonto(total)
+
+        // Pagination Logic
+        const totalCount = rawPagos.length
+        setTotalPages(Math.ceil(totalCount / pageSize))
+
+        const start = (pageParam - 1) * pageSize
+        const end = start + pageSize
+        const slicedPagos = rawPagos.slice(start, end)
+
+        // Join with Clients for Valid Sliced Items
+        // Fetching only needed clients
+        const pagosWithClients = await Promise.all(slicedPagos.map(async (p) => {
+          if (p.cliente_id) {
+            const clientRef = doc(db, "clientes", p.cliente_id)
+            const clientSnap = await getDoc(clientRef)
+            if (clientSnap.exists()) {
+              return { ...p, clientes: clientSnap.data() }
+            }
+          }
+          return { ...p, clientes: { nombre: "Desconocido", telefono: "" } }
+        }))
+
+        setPagos(rawPagos) // Store all if needed? Actually we only need paginated ones for display.
+        setPaginatedPagos(pagosWithClients)
+
+      } catch (error) {
+        console.error("Error fetching pagos:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchPagos()
+  }, [metodoParam, buscarParam, desdeParam, hastaParam, pageParam])
+
+  const handleFilter = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    const formData = new FormData(e.currentTarget)
+    const params = new URLSearchParams(searchParams)
+
+    const metodo = formData.get("metodo") as string
+    if (metodo) params.set("metodo", metodo)
+    else params.delete("metodo")
+
+    const desde = formData.get("desde") as string
+    if (desde) params.set("desde", desde)
+    else params.delete("desde")
+
+    const hasta = formData.get("hasta") as string
+    if (hasta) params.set("hasta", hasta)
+    else params.delete("hasta")
+
+    const buscar = formData.get("buscar") as string
+    if (buscar) params.set("buscar", buscar)
+    else params.delete("buscar")
+
+    params.set("page", "1") // Reset to page 1 on filter
+    router.push(`?${params.toString()}`)
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex justify-center items-center h-screen"><Loader2 className="animate-spin h-8 w-8" /></div>
+      </DashboardLayout>
+    )
+  }
 
   return (
     <DashboardLayout>
@@ -123,10 +191,10 @@ export default async function PagosPage({
           <CardDescription>Filtra la lista de pagos por método, fecha o busca por referencia</CardDescription>
         </CardHeader>
         <CardContent>
-          <form className="flex flex-col sm:flex-row gap-4">
+          <form className="flex flex-col sm:flex-row gap-4" onSubmit={handleFilter}>
             <div className="flex items-center gap-2">
               <Filter className="h-4 w-4 text-muted-foreground" />
-              <Select name="metodo" defaultValue={searchParams.metodo || "todos"}>
+              <Select name="metodo" defaultValue={metodoParam}>
                 <SelectTrigger className="w-[180px]">
                   <SelectValue placeholder="Método de pago" />
                 </SelectTrigger>
@@ -143,12 +211,12 @@ export default async function PagosPage({
 
             <div className="flex items-center gap-2">
               <span className="text-sm">Desde:</span>
-              <Input type="date" name="desde" defaultValue={searchParams.desde || ""} className="w-[180px]" />
+              <Input type="date" name="desde" defaultValue={desdeParam} className="w-[180px]" />
             </div>
 
             <div className="flex items-center gap-2">
               <span className="text-sm">Hasta:</span>
-              <Input type="date" name="hasta" defaultValue={searchParams.hasta || ""} className="w-[180px]" />
+              <Input type="date" name="hasta" defaultValue={hastaParam} className="w-[180px]" />
             </div>
 
             <div className="flex-1 flex items-center gap-2">
@@ -156,7 +224,7 @@ export default async function PagosPage({
               <Input
                 name="buscar"
                 placeholder="Buscar por referencia o notas"
-                defaultValue={searchParams.buscar || ""}
+                defaultValue={buscarParam}
                 className="flex-1"
               />
             </div>
@@ -180,14 +248,14 @@ export default async function PagosPage({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {pagos.length === 0 ? (
+              {paginatedPagos.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-8">
                     No se encontraron pagos con los filtros seleccionados
                   </TableCell>
                 </TableRow>
               ) : (
-                pagos.map((pago: any) => (
+                paginatedPagos.map((pago) => (
                   <TableRow key={pago.id}>
                     <TableCell>{formatDate(pago.fecha_pago)}</TableCell>
                     <TableCell>
@@ -196,7 +264,7 @@ export default async function PagosPage({
                     </TableCell>
                     <TableCell className="font-medium">{formatCurrency(pago.monto)}</TableCell>
                     <TableCell>{pago.metodo}</TableCell>
-                    <TableCell>{MESES[Number(pago.mes)]}</TableCell>
+                    <TableCell>{MESES[Number(pago.mes)] || pago.mes}</TableCell>
                     <TableCell className="text-right">
                       <Button variant="ghost" size="sm" asChild>
                         <Link href={`/clientes/${pago.cliente_id}`}>Ver Cliente</Link>
@@ -214,26 +282,19 @@ export default async function PagosPage({
       <div className="flex justify-center my-6">
         <nav className="inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
           {Array.from({ length: totalPages }, (_, i) => {
-            // Crear un objeto plano para query
-            const query = {
-              metodo: searchParams.metodo || undefined,
-              buscar: searchParams.buscar || undefined,
-              desde: searchParams.desde || undefined,
-              hasta: searchParams.hasta || undefined,
-              page: i + 1,
-            }
             return (
-            <Link
-              key={i + 1}
-              href={{
-                pathname: "/pagos",
-                  query,
-              }}
-              className={`px-3 py-1 border border-gray-300 text-sm font-medium ${page === i + 1 ? "bg-primary text-white" : "bg-white text-gray-700"}`}
-              aria-current={page === i + 1 ? "page" : undefined}
-            >
-              {i + 1}
-            </Link>
+              <Button
+                key={i + 1}
+                variant={pageParam === i + 1 ? "default" : "outline"}
+                className="px-3 py-1 mx-1"
+                onClick={() => {
+                  const params = new URLSearchParams(searchParams)
+                  params.set("page", (i + 1).toString())
+                  router.push(`?${params.toString()}`)
+                }}
+              >
+                {i + 1}
+              </Button>
             )
           })}
         </nav>

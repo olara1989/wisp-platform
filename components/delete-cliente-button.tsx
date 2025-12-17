@@ -15,7 +15,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { createClientSupabaseClient } from "@/lib/supabase"
+import { db } from "@/lib/firebase"
+import { doc, deleteDoc } from "firebase/firestore"
 
 interface DeleteClienteButtonProps {
   clienteId: string
@@ -28,14 +29,7 @@ export function DeleteClienteButton({ clienteId }: DeleteClienteButtonProps) {
   const handleDelete = async () => {
     try {
       setIsDeleting(true)
-      const supabase = createClientSupabaseClient()
-      
-      const { error } = await supabase
-        .from("clientes")
-        .delete()
-        .eq("id", clienteId)
-
-      if (error) throw error
+      await deleteDoc(doc(db, "clientes", clienteId))
 
       router.refresh()
     } catch (error) {

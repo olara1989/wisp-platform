@@ -9,7 +9,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { useToast } from "@/components/ui/use-toast"
-import { createClientSupabaseClient } from "@/lib/supabase"
+import { db } from "@/lib/firebase"
+import { doc, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore"
 import { suspenderCliente } from "@/lib/mikrotik"
 import { formatCurrency, formatDate, getEstadoPagoColor } from "@/lib/utils"
 import { ArrowLeft, AlertTriangle, WifiOff, Loader2 } from "lucide-react"
@@ -39,41 +40,67 @@ export default function SuspenderClientePage() {
       }
 
       try {
-        const supabase = createClientSupabaseClient()
+        // 1. Fetch Factura
+        const facturaRef = doc(db, "facturacion", facturaId)
+        const facturaSnap = await getDoc(facturaRef)
 
-        // Obtener factura
-        const { data: facturaData, error: facturaError } = await supabase
-          .from("facturacion")
-          .select(`
-            *,
-            clientes:cliente_id (*),
-            planes:plan_id (*)
-          `)
-          .eq("id", facturaId)
-          .single()
-
-        if (facturaError || !facturaData) {
+        if (!facturaSnap.exists()) {
           throw new Error("Factura no encontrada")
         }
+        const facturaData = { id: facturaSnap.id, ...facturaSnap.data() } as any
 
-        setFactura(facturaData)
-        setCliente(facturaData.clientes)
+        // 2. Fetch Cliente
+        const clienteRef = doc(db, "clientes", facturaData.cliente_id)
+        const clienteSnap = await getDoc(clienteRef)
+        const clienteData = clienteSnap.exists() ? { id: clienteSnap.id, ...clienteSnap.data() } : null
 
-        // Obtener dispositivo del cliente
-        const { data: dispositivoData, error: dispositivoError } = await supabase
-          .from("dispositivos")
-          .select(`
-            *,
-            routers:router_id (*)
-          `)
-          .eq("cliente_id", facturaData.cliente_id)
-          .single()
+        // 3. Fetch Plan
+        const planRef = doc(db, "planes", facturaData.plan_id)
+        const planSnap = await getDoc(planRef)
+        const planData = planSnap.exists() ? planSnap.data() : null
 
-        if (!dispositivoError && dispositivoData) {
-          setDispositivo(dispositivoData)
-          setRouterData(dispositivoData.routers)
+        // Assemble Factura + Cliente + Plan structure (mimic join)
+        const fullFactura = {
+          ...facturaData,
+          clientes: clienteData,
+          planes: planData
         }
+
+        setFactura(fullFactura)
+        setCliente(clienteData)
+
+        // 4. Fetch Dispositivo del cliente
+        // Assuming relationship is one-to-one or taking first
+        const qDispositivos = query(collection(db, "dispositivos"), where("cliente_id", "==", facturaData.cliente_id))
+        const dispositivosSnap = await getDocs(qDispositivos)
+
+        let dispositivoData = null
+        let rData = null
+
+        if (!dispositivosSnap.empty) {
+          dispositivoData = { id: dispositivosSnap.docs[0].id, ...dispositivosSnap.docs[0].data() } as any
+
+          // 5. Fetch Router
+          if (dispositivoData.router_id) {
+            const routerRef = doc(db, "routers", dispositivoData.router_id)
+            const routerSnap = await getDoc(routerRef)
+            if (routerSnap.exists()) {
+              rData = { id: routerSnap.id, ...routerSnap.data() }
+            }
+          }
+        }
+
+        // Mimic structure if needed, or set state directly
+        // The original code expected dispositivoData.routers populated
+        if (dispositivoData) {
+          setDispositivo(dispositivoData)
+        }
+        if (rData) {
+          setRouterData(rData)
+        }
+
       } catch (error: any) {
+        console.error("Error fetching data:", error)
         toast({
           title: "Error",
           description: error.message || "Error al cargar los datos",
@@ -101,12 +128,11 @@ export default function SuspenderClientePage() {
     setIsSuspending(true)
 
     try {
-      // Suspender cliente en Mikrotik
+      // Suspender cliente en Mikrotik (Calls API route)
       await suspenderCliente(routerData.id, dispositivo.ip, routerData.modo_control)
 
-      // Actualizar estado del cliente a suspendido
-      const supabase = createClientSupabaseClient()
-      await supabase.from("clientes").update({ estado: "suspendido" }).eq("id", cliente.id)
+      // Actualizar estado del cliente a suspendido en Firestore
+      await updateDoc(doc(db, "clientes", cliente.id), { estado: "suspendido" })
 
       toast({
         title: "Cliente suspendido",
@@ -193,10 +219,10 @@ export default function SuspenderClientePage() {
             <div className="flex justify-between items-center">
               <div>
                 <p className="font-medium">Plan</p>
-                <p className="text-sm text-muted-foreground">{factura?.planes.nombre}</p>
+                <p className="text-sm text-muted-foreground">{factura?.planes?.nombre || "Sin Plan"}</p>
               </div>
               <div className="text-right">
-                <p className="font-bold text-lg">{formatCurrency(factura?.planes.precio)}</p>
+                <p className="font-bold text-lg">{factura?.planes ? formatCurrency(factura?.planes.precio) : "-"}</p>
                 <Badge className={getEstadoPagoColor(factura?.estado_pago)}>{factura?.estado_pago}</Badge>
               </div>
             </div>

@@ -12,7 +12,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/ui/use-toast"
-import { createClientSupabaseClient } from "@/lib/supabase"
+import { db } from "@/lib/firebase"
+import { collection, addDoc } from "firebase/firestore"
 import { ArrowLeft, Loader2 } from "lucide-react"
 
 export default function NuevoPlanPage() {
@@ -40,8 +41,6 @@ export default function NuevoPlanPage() {
     setIsLoading(true)
 
     try {
-      const supabase = createClientSupabaseClient()
-
       // Convertir valores numéricos
       const planData = {
         nombre: formData.nombre,
@@ -54,11 +53,7 @@ export default function NuevoPlanPage() {
         descripcion: formData.descripcion,
       }
 
-      const { data, error } = await supabase.from("planes").insert(planData).select()
-
-      if (error) {
-        throw error
-      }
+      await addDoc(collection(db, "planes"), planData)
 
       toast({
         title: "Plan creado",

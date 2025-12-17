@@ -1,8 +1,9 @@
-import { createServerSupabaseClient } from "@/lib/supabase"
 import { formatCurrency, formatDate } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { notFound } from "next/navigation"
+import { db } from "@/lib/firebase"
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore"
 
 const MESES = [
   "",
@@ -39,32 +40,41 @@ function getMesesPendientes(primerMes, primerAnio, mesActual, anioActual, pagos)
 }
 
 export default async function PublicPagosPage({ params }: { params: { id: string } }) {
-  const supabase = createServerSupabaseClient()
-
   // Obtener datos del cliente
-  const { data: cliente, error: errorCliente } = await supabase
-    .from("clientes")
-    .select("id, nombre, telefono, email, direccion, plan, fecha_alta")
-    .eq("id", params.id)
-    .single()
+  const clienteRef = doc(db, "clientes", params.id)
+  const clienteSnap = await getDoc(clienteRef)
 
-  if (errorCliente || !cliente) {
+  if (!clienteSnap.exists()) {
     notFound()
   }
 
+  const cliente = { id: clienteSnap.id, ...clienteSnap.data() }
+
   // Obtener pagos del cliente
-  const { data: pagos } = await supabase
-    .from("pagos")
-    .select("fecha_pago, monto, metodo, mes, anio, notas")
-    .eq("cliente_id", params.id)
-    .order("fecha_pago", { ascending: false })
+  const pagosQuery = query(
+    collection(db, "pagos"),
+    where("cliente_id", "==", params.id)
+  )
+  const pagosSnap = await getDocs(pagosQuery)
+  const pagos = pagosSnap.docs
+    .map(doc => doc.data())
+    .sort((a: any, b: any) => {
+      // Sort by fecha_pago descending in memory
+      if (!a.fecha_pago) return 1
+      if (!b.fecha_pago) return -1
+      return new Date(b.fecha_pago).getTime() - new Date(a.fecha_pago).getTime()
+    })
 
   // Obtener el plan para saber el monto de adeudo
   let precioPlan = 0
   if (cliente.plan) {
-    const { data: plan } = await supabase.from("planes").select("precio").eq("id", cliente.plan).single()
-    if (plan && typeof plan.precio === 'number') {
-      precioPlan = plan.precio
+    const planRef = doc(db, "planes", cliente.plan)
+    const planSnap = await getDoc(planRef)
+    if (planSnap.exists()) {
+      const planData = planSnap.data()
+      if (planData && typeof planData.precio === 'number') {
+        precioPlan = planData.precio
+      }
     }
   }
 

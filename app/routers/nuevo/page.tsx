@@ -12,7 +12,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
-import { createClientSupabaseClient } from "@/lib/supabase"
+import { db } from "@/lib/firebase"
+import { collection, addDoc } from "firebase/firestore"
 import { testRouterConnection } from "@/lib/mikrotik"
 import { ArrowLeft, Loader2, CheckCircle2 } from "lucide-react"
 
@@ -70,24 +71,18 @@ export default function NuevoRouterPage() {
     }
   }
 
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
 
     try {
-      const supabase = createClientSupabaseClient()
-
-      const { data, error } = await supabase
-        .from("routers")
-        .insert({
-          ...formData,
-          puerto_api: Number.parseInt(formData.puerto_api),
-        })
-        .select()
-
-      if (error) {
-        throw error
-      }
+      // Create new router in Firestore
+      await addDoc(collection(db, "routers"), {
+        ...formData,
+        puerto_api: Number.parseInt(formData.puerto_api),
+        // Add default fields if necessary or let them be created
+      })
 
       toast({
         title: "Router configurado",

@@ -1,33 +1,55 @@
+"use client"
+
 import Link from "next/link"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { createServerSupabaseClient } from "@/lib/supabase"
 import { formatCurrency } from "@/lib/utils"
-import { Plus, AlertCircle } from "lucide-react"
+import { Plus, AlertCircle, Loader2 } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { useEffect, useState } from "react"
+import { db } from "@/lib/firebase"
+import { collection, query, orderBy, getDocs } from "firebase/firestore"
 
-async function getPlanes() {
-  try {
-    const supabase = createServerSupabaseClient()
-
-    const { data, error } = await supabase.from("planes").select("*").order("precio")
-
-    if (error) {
-      console.error("Error al obtener planes:", error)
-      throw error
-    }
-
-    return { data: data || [], error: null }
-  } catch (error) {
-    console.error("Error al obtener planes:", error)
-    return { data: [], error: error instanceof Error ? error : new Error("Error desconocido") }
-  }
+interface Plan {
+  id: string
+  nombre: string
+  precio: number
+  subida: number
+  bajada: number
+  burst_subida?: number
+  burst_bajada?: number
+  tiempo_burst?: number
 }
 
-export default async function PlanesPage() {
-  const { data: planes, error } = await getPlanes()
+export default function PlanesPage() {
+  const [planes, setPlanes] = useState<Plan[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<Error | null>(null)
+
+  useEffect(() => {
+    const fetchPlanes = async () => {
+      try {
+        setLoading(true)
+        const q = query(collection(db, "planes"), orderBy("precio"))
+        const querySnapshot = await getDocs(q)
+
+        const res: Plan[] = []
+        querySnapshot.forEach((doc) => {
+          res.push({ id: doc.id, ...doc.data() } as Plan)
+        })
+        setPlanes(res)
+      } catch (err) {
+        console.error("Error al obtener planes:", err)
+        setError(err instanceof Error ? err : new Error("Error desconocido"))
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchPlanes()
+  }, [])
 
   return (
     <DashboardLayout>
@@ -71,7 +93,13 @@ export default async function PlanesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {planes.length === 0 ? (
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="h-24 text-center">
+                    <div className="flex justify-center"><Loader2 className="animate-spin" /></div>
+                  </TableCell>
+                </TableRow>
+              ) : planes.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center py-8">
                     {error ? (

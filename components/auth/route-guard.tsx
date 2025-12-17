@@ -15,6 +15,9 @@ interface RouteGuardProps {
 // Rutas públicas que no requieren autenticación
 const publicRoutes = ["/", "/login", "/register", "/public/pagos/[id]"]
 
+// Rutas exclusivas para invitados (si estás logueado, te redirige al dashboard)
+const guestOnlyRoutes = ["/", "/login", "/register"]
+
 // Mapa de rutas predeterminadas por rol al iniciar sesión o acceder a una ruta pública
 const defaultRoutes: Record<string, string> = {
   admin: "/dashboard", // Ya estaba correcto
@@ -66,6 +69,11 @@ const roleRoutes: Record<string, string[]> = {
     "/clientes/nuevo", // Asegurando que se pueda crear un cliente
     "/clientes/[id]",
     "/clientes/[id]/editar", // Asegurando que se pueda editar un cliente
+    "/planes",
+    "/dispositivos",
+    "/routers",
+    "/cortes", // Agregado
+    "/cortes/suspender", // Agregado
   ],
 }
 
@@ -92,7 +100,7 @@ export function RouteGuard({ children }: RouteGuardProps) {
       console.log("[ROUTE GUARD] Waiting for auth to load (no user yet).", { isLoading, user: !!user, userRole })
       return
     }
-    
+
     // Si tenemos usuario pero no rol todavía, esperar un momento para que se cargue
     // pero no bloquear si ya pasó suficiente tiempo
     if (isLoading && user && userRole === null) {
@@ -102,12 +110,17 @@ export function RouteGuard({ children }: RouteGuardProps) {
 
     if (isCurrentPathPublic) {
       console.log("[ROUTE GUARD] Public route, showing content")
-      // Si el usuario está autenticado y en una ruta pública, redirigir a su página predeterminada
-      if (user && userRole !== null && defaultRoutes[userRole]) { // userRole !== null check agregado
-        console.log(`[ROUTE GUARD] User authenticated on public route (${pathname}), redirecting to default for role ${userRole}: ${defaultRoutes[userRole]}`)
+
+      // Verificar si es una ruta solo para invitados (login, register, home)
+      const isGuestOnly = guestOnlyRoutes.includes(pathname)
+
+      // Si el usuario está autenticado y en una ruta SOLO para invitados, redirigir a su página predeterminada
+      // SI es una ruta pública de contenido (como /public/pagos/...), NO redirigir
+      if (user && userRole !== null && defaultRoutes[userRole] && isGuestOnly) {
+        console.log(`[ROUTE GUARD] User authenticated on guest-only route (${pathname}), redirecting to default for role ${userRole}: ${defaultRoutes[userRole]}`)
         router.push(defaultRoutes[userRole])
       } else {
-        console.log(`[ROUTE GUARD] Not redirecting from public route. User: ${!!user}, UserRole: ${userRole}, DefaultRoute: ${userRole !== null ? defaultRoutes[userRole] : 'N/A'}`)
+        console.log(`[ROUTE GUARD] Not redirecting from public route. User: ${!!user}, UserRole: ${userRole}, GuestOnly: ${isGuestOnly}`)
       }
       return // Siempre mostrar contenido para rutas públicas o si no está logueado
     }
@@ -125,7 +138,7 @@ export function RouteGuard({ children }: RouteGuardProps) {
       console.log("[ROUTE GUARD] User authenticated, role loading in progress - allowing optimistic render")
       return // Permitir mostrar contenido mientras se carga el rol
     }
-    
+
     // Si el usuario está autenticado pero no tiene un rol válido (userRole es null) Y ya no estamos cargando
     if (user && userRole === null && !isLoading) {
       console.log("[ROUTE GUARD] User has no valid role after loading, redirecting to login")

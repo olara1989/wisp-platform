@@ -4,7 +4,8 @@ import { useState } from "react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { getEstadoColor } from "@/lib/utils"
-import { createClientSupabaseClient } from "@/lib/supabase"
+import { db } from "@/lib/firebase"
+import { doc, updateDoc } from "firebase/firestore"
 
 interface TableStatusSelectorProps {
   clienteId: string
@@ -27,13 +28,8 @@ export function TableStatusSelector({ clienteId, estadoActual, onStatusChange }:
   const handleStatusChange = async (newStatus: string) => {
     setIsLoading(true)
     try {
-      const supabase = createClientSupabaseClient()
-      const { error } = await supabase
-        .from("clientes")
-        .update({ estado: newStatus })
-        .eq("id", clienteId)
-
-      if (error) throw error
+      const clienteRef = doc(db, "clientes", clienteId)
+      await updateDoc(clienteRef, { estado: newStatus })
 
       setEstado(newStatus)
       if (onStatusChange) {

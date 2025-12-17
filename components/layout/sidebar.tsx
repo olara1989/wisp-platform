@@ -11,7 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { useAuth } from "@/lib/auth-provider"
 import { Users, Home, Package, CreditCard, Router, Settings, Wifi, AlertTriangle, LogOut } from "lucide-react"
 
-interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {}
+interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> { }
 
 /**
  * Barra lateral de navegación
@@ -60,6 +60,7 @@ export const Sidebar = memo(function Sidebar({ className }: SidebarProps) {
         active: pathname.startsWith("/pagos"),
         roles: ["admin", "cajero"],
       },
+      /*
       {
         label: "Dispositivos",
         icon: Wifi,
@@ -74,6 +75,7 @@ export const Sidebar = memo(function Sidebar({ className }: SidebarProps) {
         active: pathname.startsWith("/routers"),
         roles: ["admin", "tecnico"],
       },
+      */
       {
         label: "Cortes Pendientes",
         icon: AlertTriangle,

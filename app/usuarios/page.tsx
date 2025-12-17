@@ -1,32 +1,57 @@
+"use client"
+
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { createServerSupabaseClient } from "@/lib/supabase"
-import { cookies } from "next/headers"
-import { redirect } from "next/navigation"
+import { useAuth } from "@/lib/auth-provider"
+import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
+import { db } from "@/lib/firebase"
+import { collection, getDocs, orderBy, query } from "firebase/firestore"
+import { Loader2 } from "lucide-react"
 
-export default async function UsuariosPage() {
-  // Obtener la cookie de sesión
-  const cookieStore = cookies()
-  const supabase = createServerSupabaseClient()
+export default function UsuariosPage() {
+  const { userRole, isLoading, user } = useAuth()
+  const router = useRouter()
+  const [usuarios, setUsuarios] = useState<any[]>([])
+  const [loadingData, setLoadingData] = useState(true)
 
-  // Obtener el usuario autenticado por la cookie
-  const { data: { session } } = await supabase.auth.getSession()
-  const email = session?.user?.email
+  useEffect(() => {
+    if (!isLoading && userRole !== "admin") {
+      // redirect handled by AuthProvider or manual here
+      router.push("/dashboard") // or login
+    }
+  }, [userRole, isLoading, router])
 
-  // Consultar el rol en la tabla usuarios
-  let userRole = null
-  if (email) {
-    const { data: usuario } = await supabase.from("usuarios").select("rol").eq("email", email).single()
-    userRole = usuario?.rol
+  useEffect(() => {
+    const fetchUsuarios = async () => {
+      if (userRole !== "admin") return;
+      setLoadingData(true)
+      try {
+        const q = query(collection(db, "usuarios"))
+        const snapshot = await getDocs(q)
+        const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }))
+        setUsuarios(data)
+      } catch (error) {
+        console.error(error)
+      } finally {
+        setLoadingData(false)
+      }
+    }
+    fetchUsuarios()
+  }, [userRole])
+
+  if (isLoading || (loadingData && userRole === "admin")) {
+    return (
+      <DashboardLayout>
+        <div className="flex justify-center p-8"><Loader2 className="animate-spin" /></div>
+      </DashboardLayout>
+    )
   }
-  if (userRole !== "admin") {
-    redirect("/login")
-  }
 
-  const { data: usuarios } = await supabase.from("usuarios").select("id, nombre, email, rol, created_at")
+  if (userRole !== "admin") return null;
 
   return (
     <DashboardLayout>
@@ -57,7 +82,7 @@ export default async function UsuariosPage() {
                   <TableCell>{usuario.nombre}</TableCell>
                   <TableCell>{usuario.email}</TableCell>
                   <TableCell>{usuario.rol}</TableCell>
-                  <TableCell>{usuario.created_at?.slice(0, 10)}</TableCell>
+                  <TableCell>{usuario.created_at?.seconds ? new Date(usuario.created_at.seconds * 1000).toLocaleDateString() : usuario.created_at}</TableCell>
                   <TableCell>
                     <Button asChild size="sm" variant="ghost">
                       <Link href={`/usuarios/${usuario.id}/editar`}>Editar</Link>
@@ -74,4 +99,4 @@ export default async function UsuariosPage() {
       </Card>
     </DashboardLayout>
   )
-} 
+}
