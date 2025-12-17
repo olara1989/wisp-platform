@@ -49,7 +49,7 @@ export default function ClientesPage() {
 
   const estado = searchParams.get("estado")
   const buscar = searchParams.get("buscar")
-  const regiones = searchParams.getAll("regiones")
+  const regiones = searchParams.getAll("region") // Changed from "regiones" to "region"
   const page = Number(searchParams.get("page")) || 1
   const pageSize = 20
 

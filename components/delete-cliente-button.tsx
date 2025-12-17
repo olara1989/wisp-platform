@@ -15,7 +15,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { createClientSupabaseClient } from "@/lib/supabase"
+import { db } from "@/lib/firebase"
+import { doc, deleteDoc } from "firebase/firestore"
 
 interface DeleteClienteButtonProps {
   clienteId: string
@@ -28,9 +29,6 @@ export function DeleteClienteButton({ clienteId }: DeleteClienteButtonProps) {
   const handleDelete = async () => {
     try {
       setIsDeleting(true)
-      const { deleteDoc, doc } = await import("firebase/firestore")
-      const { db } = await import("@/lib/firebase")
-
       await deleteDoc(doc(db, "clientes", clienteId))
 
       router.refresh()
