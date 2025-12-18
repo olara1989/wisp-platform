@@ -32,21 +32,43 @@ export default function LoginPage() {
         description: "Bienvenido a WISP Manager",
       })
     } catch (error: any) {
-      console.error("Login error:", error)
-      let mensaje = "Error desconocido. Intenta de nuevo."
-      if (error?.status === 400) {
-        mensaje = "Correo o contraseña incorrectos."
-      } else if (error?.status === 429) {
-        mensaje = "Demasiados intentos. Espera un momento e inténtalo de nuevo."
-      } else if (error?.message?.toLowerCase().includes("user not found")) {
-        mensaje = "Usuario no encontrado."
-      } else if (error?.message?.toLowerCase().includes("invalid login credentials")) {
-        mensaje = "Correo o contraseña incorrectos."
-      } else if (error?.message?.toLowerCase().includes("email not confirmed")) {
-        mensaje = "Debes confirmar tu correo electrónico antes de iniciar sesión."
-      } else if (error?.message) {
-        mensaje = error.message
+      console.error("Login error details:", {
+        code: error?.code,
+        message: error?.message,
+        error
+      })
+
+      let mensaje = "Error al iniciar sesión. Por favor, intenta de nuevo."
+
+      // Mapeo de errores de Firebase Auth
+      switch (error?.code) {
+        case "auth/invalid-credential":
+        case "auth/wrong-password":
+          mensaje = "Correo o contraseña incorrectos."
+          break
+        case "auth/user-not-found":
+          mensaje = "No existe una cuenta con este correo electrónico."
+          break
+        case "auth/user-disabled":
+          mensaje = "Esta cuenta ha sido deshabilitada."
+          break
+        case "auth/too-many-requests":
+          mensaje = "Demasiados intentos fallidos. Por seguridad, la cuenta se ha bloqueado temporalmente. Intenta más tarde."
+          break
+        case "auth/network-request-failed":
+          mensaje = "Error de red. Verifica tu conexión a internet."
+          break
+        case "auth/invalid-email":
+          mensaje = "El formato del correo electrónico no es válido."
+          break
+        default:
+          if (error?.message?.toLowerCase().includes("invalid login credentials")) {
+            mensaje = "Correo o contraseña incorrectos."
+          } else if (error?.message) {
+            mensaje = error.message
+          }
       }
+
       toast({
         title: "Error de inicio de sesión",
         description: mensaje,

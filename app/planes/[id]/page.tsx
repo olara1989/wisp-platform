@@ -1,40 +1,63 @@
+"use client"
+
 import Link from "next/link"
-import { notFound } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { createServerSupabaseClient } from "@/lib/supabase"
 import { formatCurrency } from "@/lib/utils"
-import { ArrowLeft, Edit } from "lucide-react"
+import { ArrowLeft, Edit, Loader2 } from "lucide-react"
+import { useEffect, useState } from "react"
+import { db } from "@/lib/firebase"
+import { doc, getDoc } from "firebase/firestore"
+import { useToast } from "@/components/ui/use-toast"
 
-async function getPlan(id: string) {
-  try {
-    const supabase = createServerSupabaseClient()
-
-    const { data, error } = await supabase.from("planes").select("*").eq("id", id).single()
-
-    if (error) {
-      console.error("Error al obtener plan:", error)
-      return null
-    }
-
-    return data
-  } catch (error) {
-    console.error("Error al obtener plan:", error)
-    return null
-  }
-}
-
-export default async function PlanDetallePage({
+export default function PlanDetallePage({
   params,
 }: {
   params: { id: string }
 }) {
-  const plan = await getPlan(params.id)
+  const router = useRouter()
+  const { toast } = useToast()
+  const [plan, setPlan] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
 
-  if (!plan) {
-    notFound()
+  useEffect(() => {
+    const fetchPlan = async () => {
+      try {
+        const docRef = doc(db, "planes", params.id)
+        const docSnap = await getDoc(docRef)
+        if (docSnap.exists()) {
+          setPlan({ id: docSnap.id, ...docSnap.data() })
+        } else {
+          toast({
+            title: "Error",
+            description: "Plan no encontrado",
+            variant: "destructive",
+          })
+          router.push("/planes")
+        }
+      } catch (error) {
+        console.error("Error fetching plan:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchPlan()
+  }, [params.id, router, toast])
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex justify-center p-8">
+          <Loader2 className="animate-spin" />
+        </div>
+      </DashboardLayout>
+    )
   }
+
+  if (!plan) return null
 
   return (
     <DashboardLayout>
