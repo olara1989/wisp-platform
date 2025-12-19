@@ -41,6 +41,7 @@ interface Cliente {
 }
 
 import { GenerateReceiptsDialog } from "@/components/generate-receipts-dialog"
+import { ExportClientesExcelDialog } from "@/components/export-clientes-excel-dialog"
 
 export default function ClientesPage() {
   const searchParams = useSearchParams()
@@ -159,6 +160,7 @@ export default function ClientesPage() {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">Clientes</h1>
         <div className="flex gap-2">
+          <ExportClientesExcelDialog filters={{ estado, buscar, regiones }} />
           <GenerateReceiptsDialog />
           <Button asChild>
             <Link href="/clientes/nuevo">
