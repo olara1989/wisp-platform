@@ -40,6 +40,8 @@ interface Cliente {
   } | null
 }
 
+import { GenerateReceiptsDialog } from "@/components/generate-receipts-dialog"
+
 export default function ClientesPage() {
   const searchParams = useSearchParams()
   const [clientes, setClientes] = useState<Cliente[]>([])
@@ -47,7 +49,7 @@ export default function ClientesPage() {
   const [total, setTotal] = useState(0)
   const [uniqueRegions, setUniqueRegions] = useState<string[]>([])
 
-  const estado = searchParams.get("estado")
+  const estado = searchParams.get("estado") || "activo"
   const buscar = searchParams.get("buscar")
   const regiones = searchParams.getAll("region") // Changed from "regiones" to "region"
   const page = Number(searchParams.get("page")) || 1
@@ -156,12 +158,16 @@ export default function ClientesPage() {
     <DashboardLayout>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">Clientes</h1>
-        <Button asChild>
-          <Link href="/clientes/nuevo">
-            <Plus className="mr-2 h-4 w-4" /> Nuevo Cliente
-          </Link>
-        </Button>
+        <div className="flex gap-2">
+          <GenerateReceiptsDialog />
+          <Button asChild>
+            <Link href="/clientes/nuevo">
+              <Plus className="mr-2 h-4 w-4" /> Nuevo Cliente
+            </Link>
+          </Button>
+        </div>
       </div>
+
 
       <Card className="mb-6">
         <CardHeader>
@@ -219,6 +225,11 @@ export default function ClientesPage() {
                         <Button variant="ghost" size="icon" asChild>
                           <Link href={`/clientes/${cliente.id}`}>
                             <Eye className="h-4 w-4" />
+                          </Link>
+                        </Button>
+                        <Button variant="ghost" size="icon" asChild>
+                          <Link href={`/clientes/${cliente.id}/editar`}>
+                            <Pencil className="h-4 w-4" />
                           </Link>
                         </Button>
                         <Button variant="ghost" size="icon" asChild>

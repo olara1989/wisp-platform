@@ -53,6 +53,7 @@ const roleRoutes: Record<string, string[]> = {
     "/debug",
     "/cortes",
     "/cortes/suspender",
+    "/recibos",
   ],
   cajero: [
     "/clientes",
@@ -63,6 +64,7 @@ const roleRoutes: Record<string, string[]> = {
     "/pagos/nuevo",
     "/cortes", // Agregado
     "/cortes/suspender", // Agregado
+    "/recibos", // Agregado
   ],
   tecnico: [
     "/clientes",
@@ -74,6 +76,7 @@ const roleRoutes: Record<string, string[]> = {
     "/routers",
     "/cortes", // Agregado
     "/cortes/suspender", // Agregado
+    "/recibos", // Agregado
   ],
 }
 

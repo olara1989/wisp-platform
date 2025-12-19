@@ -27,24 +27,24 @@ export function ClientesFilterForm({ uniqueRegions }: ClientesFilterFormProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
-  const [estado, setEstado] = useState(searchParams.get("estado") || "todos")
+  const [estado, setEstado] = useState(searchParams.get("estado") || "activo")
   const [buscar, setBuscar] = useState(searchParams.get("buscar") || "")
 
   useEffect(() => {
-    setEstado(searchParams.get("estado") || "todos")
+    setEstado(searchParams.get("estado") || "activo")
     setBuscar(searchParams.get("buscar") || "")
   }, [searchParams])
 
   const handleEstadoChange = (newEstado: string) => {
     setEstado(newEstado)
     const params = new URLSearchParams(searchParams.toString())
-    
+
     if (newEstado && newEstado !== "todos") {
       params.set("estado", newEstado)
     } else {
       params.delete("estado")
     }
-    
+
     router.push(`?${params.toString()}`)
   }
 
@@ -65,9 +65,9 @@ export function ClientesFilterForm({ uniqueRegions }: ClientesFilterFormProps) {
     <form className="flex flex-col sm:flex-row gap-4" onSubmit={handleSubmit}>
       <div className="flex items-center gap-2">
         <Filter className="h-4 w-4 text-muted-foreground" />
-        <Select 
-          name="estado" 
-          value={estado} 
+        <Select
+          name="estado"
+          value={estado}
           onValueChange={handleEstadoChange}
         >
           <SelectTrigger className="w-[180px] text-[#687373]">
