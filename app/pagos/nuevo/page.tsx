@@ -12,13 +12,16 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/components/ui/use-toast"
+import { useAuth } from "@/lib/auth-provider"
 import { db } from "@/lib/firebase"
 import { collection, query, where, getDocs, getDoc, doc, addDoc, updateDoc, orderBy } from "firebase/firestore"
 import { reactivarCliente } from "@/lib/mikrotik"
 import { formatCurrency } from "@/lib/utils"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import { Alert } from "@/components/ui/alert"
+
 
 // Definir tipos para cliente y facturación
 interface Cliente {
@@ -57,6 +60,7 @@ export default function NuevoPagoPage() {
   const searchParams = useSearchParams()
   const clienteId = searchParams.get("cliente")
   const { toast } = useToast()
+  const { userRole } = useAuth()
 
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
@@ -68,6 +72,10 @@ export default function NuevoPagoPage() {
   const [clienteInput, setClienteInput] = useState("")
   const [showSuggestions, setShowSuggestions] = useState(false)
   const registrarBtnRef = useRef<HTMLButtonElement>(null)
+
+  // Estados para múltiples pagos
+  const [registrarMultiples, setRegistrarMultiples] = useState(false)
+  const [mesesSeleccionados, setMesesSeleccionados] = useState<string[]>([])
 
   const [formData, setFormData] = useState({
     cliente_id: "",
@@ -82,6 +90,7 @@ export default function NuevoPagoPage() {
 
   const [puedeRegistrar, setPuedeRegistrar] = useState(true)
   const [alertaPago, setAlertaPago] = useState("")
+
 
   useEffect(() => {
     const fetchData = async () => {
@@ -180,41 +189,78 @@ export default function NuevoPagoPage() {
     setPuedeRegistrar(true)
     await fetchClienteData(cliente.id)
 
-    // Calcular mes y año anterior
-    let mesAnterior = mesActual - 1
-    let anioAnterior = anioActual
-    if (mesActual === 1) {
-      mesAnterior = 12
-      anioAnterior = anioActual - 1
-    }
-    // Verificar si existe pago del mes anterior
+    // Verificar todos los meses pendientes de pago
     try {
-      // Logic: query pagos where cliente_id, mes, anio match
+      // Obtener todos los pagos del cliente
       const pagosQ = query(
         collection(db, "pagos"),
-        where("cliente_id", "==", cliente.id),
-        where("mes", "==", String(mesAnterior)), // ensure strings match if used as such
-        where("anio", "==", String(anioAnterior))
+        where("cliente_id", "==", cliente.id)
       )
-      // Note: Firestore might store numbers or strings. Be careful.
-      // Based on form data default, mes/anio are strings.
-      // Ideally we check how they are stored. Assuming strings based on form.
-
       const pagosSnap = await getDocs(pagosQ)
 
+      // Si no hay pagos, no hay pendientes que verificar
       if (pagosSnap.empty) {
-        // Double check if stored as number?
-        // In migration plan, consistency is key. Let's try both or standardize.
-        // For now assumes matching types.
+        setAlertaPago("")
+        setPuedeRegistrar(true)
+        return
+      }
 
-        setAlertaPago("El cliente no tiene pago registrado del mes anterior. Por favor, verifica la situación antes de registrar un nuevo pago.")
+      // Crear un Set con los meses/años que ya tienen pago
+      const mesesPagados = new Set<string>()
+      let primerPagoFecha: Date | null = null
+      let ultimoPagoFecha: Date | null = null
+
+      pagosSnap.forEach(doc => {
+        const pago = doc.data()
+        mesesPagados.add(`${pago.mes}-${pago.anio}`)
+
+        const fechaPago = new Date(Number(pago.anio), Number(pago.mes) - 1)
+
+        if (!primerPagoFecha || fechaPago < primerPagoFecha) {
+          primerPagoFecha = fechaPago
+        }
+        if (!ultimoPagoFecha || fechaPago > ultimoPagoFecha) {
+          ultimoPagoFecha = fechaPago
+        }
+      })
+
+      // Verificar cada mes desde el PRIMER pago hasta el mes anterior al actual
+      const mesesPendientes: string[] = []
+
+      if (primerPagoFecha) {
+        let mesVerificar = primerPagoFecha.getMonth() + 1 // Mes del primer pago
+        let anioVerificar = primerPagoFecha.getFullYear()
+
+        // Verificar hasta el mes anterior al actual
+        while (anioVerificar < anioActual || (anioVerificar === anioActual && mesVerificar < mesActual)) {
+          const claveMes = `${mesVerificar}-${anioVerificar}`
+
+          // Si este mes NO está pagado, agregarlo a pendientes
+          if (!mesesPagados.has(claveMes)) {
+            const nombreMes = MESES.find(m => m.id === mesVerificar)?.nombre || mesVerificar.toString()
+            mesesPendientes.push(`${nombreMes} ${anioVerificar}`)
+          }
+
+          // Avanzar al siguiente mes
+          mesVerificar++
+          if (mesVerificar > 12) {
+            mesVerificar = 1
+            anioVerificar++
+          }
+        }
+      }
+
+      if (mesesPendientes.length > 0) {
+        const listaMeses = mesesPendientes.join(", ")
+        setAlertaPago(`El cliente tiene pagos pendientes de los siguientes meses: ${listaMeses}. Por favor, verifica la situación antes de registrar un nuevo pago.`)
         setPuedeRegistrar(false)
       } else {
         setAlertaPago("")
         setPuedeRegistrar(true)
       }
     } catch (err) {
-      setAlertaPago("No se pudo verificar el pago del mes anterior. Intenta nuevamente.")
+      console.error("Error al verificar pagos pendientes:", err)
+      setAlertaPago("No se pudo verificar los pagos pendientes. Intenta nuevamente.")
       setPuedeRegistrar(false)
     }
   }
@@ -242,6 +288,16 @@ export default function NuevoPagoPage() {
     setFormData((prev) => ({ ...prev, anio: value }))
   }
 
+  const toggleMesSeleccionado = (mesId: string) => {
+    setMesesSeleccionados(prev => {
+      if (prev.includes(mesId)) {
+        return prev.filter(m => m !== mesId)
+      } else {
+        return [...prev, mesId]
+      }
+    })
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSaving(true)
@@ -256,15 +312,32 @@ export default function NuevoPagoPage() {
         }
       }
 
-      // Registrar el pago
-      await addDoc(collection(db, "pagos"), {
-        ...formData,
-        fecha_pago: fechaPago,
-        monto: Number.parseFloat(formData.monto),
-        mes: formData.mes,
-        anio: formData.anio,
-        created_at: new Date() // Add timestamp
-      })
+      // Si es registro múltiple, crear un pago por cada mes seleccionado
+      if (registrarMultiples && mesesSeleccionados.length > 0) {
+        for (const mesId of mesesSeleccionados) {
+          await addDoc(collection(db, "pagos"), {
+            cliente_id: formData.cliente_id,
+            monto: Number.parseFloat(formData.monto),
+            metodo: formData.metodo,
+            referencia: formData.referencia,
+            notas: formData.notas,
+            fecha_pago: fechaPago,
+            mes: mesId,
+            anio: formData.anio,
+            created_at: new Date()
+          })
+        }
+      } else {
+        // Registro simple de un solo pago
+        await addDoc(collection(db, "pagos"), {
+          ...formData,
+          fecha_pago: fechaPago,
+          monto: Number.parseFloat(formData.monto),
+          mes: formData.mes,
+          anio: formData.anio,
+          created_at: new Date()
+        })
+      }
 
       // Actualizar estado de facturación
       if (facturacion) {
@@ -292,8 +365,10 @@ export default function NuevoPagoPage() {
 
 
       toast({
-        title: "Pago registrado",
-        description: "El pago ha sido registrado exitosamente",
+        title: registrarMultiples ? "Pagos registrados" : "Pago registrado",
+        description: registrarMultiples
+          ? `Se registraron ${mesesSeleccionados.length} pagos exitosamente`
+          : "El pago ha sido registrado exitosamente",
       })
 
       // Redirigir a la página del cliente
@@ -308,6 +383,7 @@ export default function NuevoPagoPage() {
       setIsSaving(false)
     }
   }
+
 
   if (isLoading) {
     return (
@@ -339,8 +415,15 @@ export default function NuevoPagoPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             {alertaPago && (
-              <Alert variant="destructive">
-                {alertaPago}
+              <Alert variant={registrarMultiples ? "default" : "destructive"}>
+                <div className="flex flex-col gap-2">
+                  <p>{alertaPago}</p>
+                  {userRole === "admin" && !registrarMultiples && (
+                    <p className="text-sm font-medium">
+                      💡 Puedes usar la opción "Registrar múltiples pagos" para registrar los meses pendientes de una sola vez.
+                    </p>
+                  )}
+                </div>
               </Alert>
             )}
             <div className="space-y-2 relative">
@@ -399,20 +482,73 @@ export default function NuevoPagoPage() {
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <Label htmlFor="mes">Mes</Label>
-                <Select value={formData.mes} onValueChange={handleMesChange} name="mes">
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar mes" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MESES.map((mes) => (
-                      <SelectItem key={mes.id} value={mes.id.toString()}>{mes.nombre}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            {/* Opción de múltiples pagos - Solo para administradores */}
+            {userRole === "admin" && (
+              <div className="flex items-center space-x-2 p-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
+                <Checkbox
+                  id="registrar-multiples"
+                  checked={registrarMultiples}
+                  onCheckedChange={(checked) => {
+                    setRegistrarMultiples(checked as boolean)
+                    if (!checked) {
+                      setMesesSeleccionados([])
+                    }
+                  }}
+                />
+                <Label
+                  htmlFor="registrar-multiples"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                >
+                  Registrar múltiples pagos (varios meses a la vez)
+                </Label>
               </div>
+            )}
+
+            {/* Selector de meses múltiples */}
+            {registrarMultiples && (
+              <div className="space-y-3 p-4 bg-muted rounded-lg border">
+                <Label className="text-base font-semibold">Selecciona los meses a pagar:</Label>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {MESES.map((mes) => (
+                    <div key={mes.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`mes-${mes.id}`}
+                        checked={mesesSeleccionados.includes(mes.id.toString())}
+                        onCheckedChange={() => toggleMesSeleccionado(mes.id.toString())}
+                      />
+                      <Label
+                        htmlFor={`mes-${mes.id}`}
+                        className="text-sm font-normal cursor-pointer"
+                      >
+                        {mes.nombre}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+                {mesesSeleccionados.length > 0 && (
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Meses seleccionados: {mesesSeleccionados.length} - Total: {formatCurrency(Number.parseFloat(formData.monto || "0") * mesesSeleccionados.length)}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {!registrarMultiples && (
+                <div className="space-y-2">
+                  <Label htmlFor="mes">Mes</Label>
+                  <Select value={formData.mes} onValueChange={handleMesChange} name="mes">
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar mes" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MESES.map((mes) => (
+                        <SelectItem key={mes.id} value={mes.id.toString()}>{mes.nombre}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="anio">Año</Label>
                 <Select value={formData.anio} onValueChange={handleAnioChange} name="anio">
@@ -492,14 +628,23 @@ export default function NuevoPagoPage() {
             <Button variant="outline" asChild>
               <Link href={clienteId ? `/clientes/${clienteId}` : "/pagos"}>Cancelar</Link>
             </Button>
-            <Button ref={registrarBtnRef} type="submit" disabled={isSaving || !formData.cliente_id || !puedeRegistrar}>
+            <Button
+              ref={registrarBtnRef}
+              type="submit"
+              disabled={
+                isSaving ||
+                !formData.cliente_id ||
+                (!registrarMultiples && !puedeRegistrar) ||
+                (registrarMultiples && mesesSeleccionados.length === 0)
+              }
+            >
               {isSaving ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Guardando...
                 </>
               ) : (
-                "Registrar Pago"
+                registrarMultiples ? `Registrar ${mesesSeleccionados.length} Pago${mesesSeleccionados.length !== 1 ? 's' : ''}` : "Registrar Pago"
               )}
             </Button>
           </CardFooter>
