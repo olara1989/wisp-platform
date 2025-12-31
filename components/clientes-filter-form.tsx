@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { MultiSelectRegionFilter } from "@/components/ui/multi-select-region-filter"
 import { Badge } from "@/components/ui/badge"
 import { getEstadoColor } from "@/lib/utils"
+import { ClientesAdvancedFilter } from "@/components/clientes-advanced-filter"
 
 interface ClientesFilterFormProps {
   uniqueRegions: string[]
@@ -108,6 +109,7 @@ export function ClientesFilterForm({ uniqueRegions }: ClientesFilterFormProps) {
       </div>
 
       <Button type="submit">Aplicar Filtros</Button>
+      <ClientesAdvancedFilter uniqueRegions={uniqueRegions} />
     </form>
   )
-} 
+}

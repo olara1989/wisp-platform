@@ -52,7 +52,9 @@ export default function ClientesPage() {
 
   const estado = searchParams.get("estado") || "activo"
   const buscar = searchParams.get("buscar")
-  const regiones = searchParams.getAll("region") // Changed from "regiones" to "region"
+  const regiones = searchParams.getAll("region")
+  const conTelefono = searchParams.get("con_telefono")
+  const conUbicacion = searchParams.get("con_ubicacion")
   const page = Number(searchParams.get("page")) || 1
   const pageSize = 20
 
@@ -109,10 +111,12 @@ export default function ClientesPage() {
           } as Cliente
         })
 
-        // Client-side filtering for 'buscar'
+        // Client-side filtering for 'buscar' and advanced filters - params already extracted above but also available via closure
+        let filteredResults = results
+
         if (buscar) {
           const searchLower = buscar.toLowerCase()
-          results = results.filter(c =>
+          filteredResults = filteredResults.filter(c =>
             c.nombre?.toLowerCase().includes(searchLower) ||
             c.email?.toLowerCase().includes(searchLower) ||
             c.telefono?.includes(searchLower) ||
@@ -120,21 +124,33 @@ export default function ClientesPage() {
           )
         }
 
+        if (conTelefono === "si") {
+          filteredResults = filteredResults.filter(c => c.telefono && c.telefono.length > 0)
+        } else if (conTelefono === "no") {
+          filteredResults = filteredResults.filter(c => !c.telefono || c.telefono.length === 0)
+        }
+
+        if (conUbicacion === "si") {
+          filteredResults = filteredResults.filter(c => c.latitud && c.longitud)
+        } else if (conUbicacion === "no") {
+          filteredResults = filteredResults.filter(c => !c.latitud || !c.longitud)
+        }
+
         // Sort by IP client-side (since we can't use orderBy reliably)
-        results.sort((a, b) => {
+        filteredResults.sort((a, b) => {
           const ipA = parseInt(a.ip) || 0
           const ipB = parseInt(b.ip) || 0
           return ipA - ipB
         })
 
-        setTotal(results.length)
+        setTotal(filteredResults.length)
 
         // Manual Pagination (Slice)
         const startIndex = (page - 1) * pageSize
         const endIndex = startIndex + pageSize
-        const paginatedResults = results.slice(startIndex, endIndex)
+        const paginatedResults = filteredResults.slice(startIndex, endIndex)
 
-        console.log("[CLIENTES] Showing", paginatedResults.length, "of", results.length, "total")
+        console.log("[CLIENTES] Showing", paginatedResults.length, "of", filteredResults.length, "total")
         setClientes(paginatedResults)
         console.log("[CLIENTES] State updated, clientes array length:", paginatedResults.length)
 
@@ -149,7 +165,7 @@ export default function ClientesPage() {
     }
 
     fetchData()
-  }, [estado, buscar, JSON.stringify(regiones), page]) // Removed pageSize and searchParams to avoid infinite loops
+  }, [estado, buscar, JSON.stringify(regiones), conTelefono, conUbicacion, page]) // Removed pageSize and searchParams to avoid infinite loops
 
   console.log("[CLIENTES] Render - loading:", loading, "clientes count:", clientes.length)
 
@@ -239,6 +255,7 @@ export default function ClientesPage() {
                             <Clock className="h-4 w-4" />
                           </Link>
                         </Button>
+                        <DeleteClienteButton clienteId={cliente.id} />
                       </div>
                     </TableCell>
                   </TableRow>
