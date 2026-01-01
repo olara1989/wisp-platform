@@ -97,10 +97,15 @@ export default function NuevoPagoPage() {
       try {
         const q = query(collection(db, "clientes"), orderBy("nombre"))
         const querySnapshot = await getDocs(q)
-        const clientesData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Cliente[]
+        // Filtrar solo clientes con estado activo según requerimiento
+        const clientesData = (querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Cliente[])
+          .filter(cliente => cliente.estado === "activo")
         setClientes(clientesData)
 
         if (clienteId) {
+          // Si el cliente viene por URL, intentamos encontrarlo en la lista filtrada
+          // Si no está (porque no es activo), podríamos optar por buscarlo individualmente o simplemente no mostrarlo.
+          // Por ahora buscaremos en la lista filtrada.
           const cliente = clientesData.find((c) => c.id === clienteId)
           if (cliente) {
             setFormData((prev) => ({ ...prev, cliente_id: String(cliente.id) }))
