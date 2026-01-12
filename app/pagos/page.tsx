@@ -13,6 +13,7 @@ import { useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { db } from "@/lib/firebase"
 import { collection, getDocs, orderBy, query, limit, where, getDoc, doc } from "firebase/firestore"
+import { DeletePagoButton } from "@/components/delete-pago-button"
 
 const MESES = [
   "",
@@ -37,6 +38,7 @@ interface Pago {
   monto: number
   metodo: string
   mes: string | number // Assuming string/number mixed in migration
+  anio?: string | number
   clientes?: any
 }
 
@@ -264,11 +266,14 @@ export default function PagosPage() {
                     </TableCell>
                     <TableCell className="font-medium">{formatCurrency(pago.monto)}</TableCell>
                     <TableCell>{pago.metodo}</TableCell>
-                    <TableCell>{MESES[Number(pago.mes)] || pago.mes}</TableCell>
+                    <TableCell>{MESES[Number(pago.mes)] || pago.mes} {pago.anio}</TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" asChild>
-                        <Link href={`/clientes/${pago.cliente_id}`}>Ver Cliente</Link>
-                      </Button>
+                      <div className="flex justify-end items-center gap-2">
+                        <Button variant="ghost" size="sm" asChild>
+                          <Link href={`/clientes/${pago.cliente_id}`}>Ver Cliente</Link>
+                        </Button>
+                        <DeletePagoButton pagoId={pago.id} />
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))

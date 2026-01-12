@@ -203,6 +203,18 @@ export default function ClienteDetallePage() {
         }
         const pagos = pagosSnap.docs.map(p => ({ id: p.id, ...p.data() } as Pago))
 
+        // Ordenar pagos en memoria para asegurar el orden (lo mas reciente primero)
+        // Esto es útil si falla el orderBy de Firestore por falta de índices
+        pagos.sort((a, b) => {
+          const getSeconds = (date: any) => {
+            if (!date) return 0;
+            if (date.seconds) return date.seconds;
+            if (date instanceof Date) return date.getTime() / 1000;
+            return new Date(date).getTime() / 1000;
+          }
+          return getSeconds(b.fecha_pago) - getSeconds(a.fecha_pago);
+        })
+
         setData({ cliente: clienteData, dispositivos, facturacion, pagos })
 
       } catch (err) {
